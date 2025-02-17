@@ -1,6 +1,0 @@
-{
-  "moderators": ["user1", "user2"],
-  "ban_words": ["spam", "ban_word1", "ban_word2"],
-  "mute_words": ["mute_word1", "mute_word2", "mute_word3"],
-  "kick_words": ["kick_word1", "kick_word2", "kick_word3"]
-}
