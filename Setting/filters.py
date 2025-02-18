@@ -45,144 +45,8 @@ async def is_admin(chat_id, user_id):
     return False
 
 
-@router.message(F.text == '/unban')
-async def unban_user(message: types.Message):
-    user_id = message.reply_to_message.from_user.id
+# Обробник для команди /ban
 
-    # Перевірка чи користувач є забаненим
-    if user_id in banned_users:
-        await bot.unban_chat_member(message.chat.id, user_id)
-        banned_users.remove(user_id)
-        await message.answer(f"Користувач {user_id} розблокований.")
-    else:
-        await message.answer(f"Користувач {user_id} не був забанений.")
-
-
-@router.message(F.text == '/unmute')
-async def unmute_user(message: types.Message):
-    user_id = message.reply_to_message.from_user.id
-
-    # Перевірка чи користувач є замученим
-    if user_id in muted_users:
-        await bot.restrict_chat_member(message.chat.id, user_id, can_send_messages=True)
-        muted_users.remove(user_id)
-        await message.answer(f"Користувач {user_id} розмучений.")
-    else:
-        await message.answer(f"Користувач {user_id} не був замучений.")
-
-
-@router.message(F.text == '/banned_list')
-async def banned_list(message: types.Message):
-    if banned_users:
-        banned_list_str = ""
-        for user in banned_users:
-            first_name = user.get('first_name')
-            end_time = user.get('end_time')
-            # Форматуємо час закінчення
-            formatted_time = end_time.strftime('%Y-%m-%d %H:%M:%S') if isinstance(end_time, datetime) else "Не визначено"
-            banned_list_str += f"🚫 Name: {first_name}, До: {formatted_time}\n"
-
-        await message.answer(f"Забанені користувачі:\n{banned_list_str}")
-    else:
-        await message.answer("Немає забанених користувачів.")
-
-
-@router.message(F.text == '/muted_list')
-async def muted_list(message: types.Message):
-    if muted_users:
-        muted_list_str = ""
-        for user in muted_users:
-            first_name = user.get('first_name')
-            end_time = user.get('end_time')
-            # Форматуємо час закінчення
-            formatted_time = end_time.strftime('%Y-%m-%d %H:%M:%S') if isinstance(end_time,
-                                                                                  datetime) else "Не визначено"
-            muted_list_str += f"🧑‍🦰 ID: {first_name}, До: {formatted_time}\n"
-
-        await message.answer(f"Замучені користувачі:\n{muted_list_str}")
-    else:
-        await message.answer("Немає замучених користувачів.")
-
-
-@router.message(F.text.startswith('/mute'))
-async def mute_user(message: Message, bot: Bot):
-    # Перевірка на адміністратора
-    if not await is_admin(message.chat.id, message.from_user.id):
-        await message.answer("Тільки адміністратори можуть використовувати цю команду.")
-        return
-
-    # Перевірка, що команда є відповіддю на повідомлення
-    if not message.reply_to_message:
-        await message.answer("Ця команда має бути відповіддю на повідомлення!")
-        return
-
-    try:
-        muteint = int(message.text.split()[1])  # Тривалість мута
-        mutetype = message.text.split()[2]  # Тип тривалості (години, хвилини, дні)
-        comment = " ".join(message.text.split()[3:])  # Причина мута
-    except IndexError:
-        await message.answer('Бракує аргументів! Приклад: `/mute 1 хвилина причина`')
-        return
-
-    # Розрахунок часу мута на основі введених даних
-    if mutetype in ["г", "годин", "година"]:
-        dt = datetime.now() + timedelta(hours=muteint)
-    elif mutetype in ["х", "хвилин", "хвилини"]:
-        dt = datetime.now() + timedelta(minutes=muteint)
-    elif mutetype in ["д", "днів", "день"]:
-        dt = datetime.now() + timedelta(days=muteint)
-    else:
-        await message.answer("Невідомий тип часу. Використовуйте 'г', 'х' або 'д'.")
-        return
-
-    # Замучуємо користувача (відправляємо мут)
-    timestamp = dt.timestamp()
-    await bot.restrict_chat_member(
-        message.chat.id,
-        message.reply_to_message.from_user.id,
-        types.ChatPermissions(can_send_messages=False),
-        until_date=timestamp
-    )
-
-    # Зберігаємо час розмуту для користувача
-    muted_users.append({
-        "user_id": message.reply_to_message.from_user.id,
-        "first_name": message.reply_to_message.from_user.first_name,
-        "end_time": dt
-    })
-
-    # Відповідаємо повідомленням про мут
-    await message.answer(
-        f' | <b>Рішення було прийняте:</b> {message.from_user.get_mention(as_html=True)}\n'
-        f' | <b>Порушник:</b> <a href="tg://user?id={message.reply_to_message.from_user.id}">{message.reply_to_message.from_user.first_name}</a>\n'
-        f'⏰ | <b>Термін покарання:</b> {muteint} {mutetype}\n'
-        f' | <b>Причина:</b> {comment}',
-        parse_mode='html'
-    )
-
-    # Перевіряємо, коли мути зняти (перевірка часу)
-    while True:
-        # Знаходимо замученого користувача
-        muted_user = next((user for user in muted_users if user['user_id'] == message.reply_to_message.from_user.id),
-                          None)
-
-        if muted_user and muted_user['end_time'] <= datetime.now():
-            # Розмучуємо користувача
-            await bot.restrict_chat_member(
-                message.chat.id,
-                muted_user['user_id'],
-                types.ChatPermissions(can_send_messages=True)
-            )
-            await message.answer(f"Користувач {message.reply_to_message.from_user.first_name} розмучений.")
-
-            # Видаляємо запис про замученого користувача
-            muted_users.remove(muted_user)
-            break
-
-        await asyncio.sleep(1)
-
-
-# Ban command
 @router.message(F.text.startswith('/ban'))
 async def ban_user(message: Message, bot: Bot):
     # Check if the user is an admin
@@ -195,18 +59,131 @@ async def ban_user(message: Message, bot: Bot):
         await message.answer("Ця команда має бути відповіддю на повідомлення!")
         return
 
+    user_id = message.reply_to_message.from_user.id
+    user_first_name = message.reply_to_message.from_user.first_name
+
     # Ban the user
-    await bot.ban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
+    await bot.ban_chat_member(message.chat.id, user_id)
+
+    # Add user to the banned users database
+    BannedUser.objects.create(user_id=user_id, first_name=user_first_name)
 
     # Send confirmation message
-    await message.answer(f'Покинув нас: {message.reply_to_message.from_user.first_name}')
-
-    banned_users.append({
-        "first_name": message.reply_to_message.from_user.first_name,
-    })
+    await message.answer(f'Покинув нас: {user_first_name}')
 
 
-# Unban (Kik) command
+# Обробник для команди /unban
+@router.message(F.text == '/unban')
+async def unban_user(message: types.Message):
+    user_id = message.reply_to_message.from_user.id
+
+    try:
+        banned_user = BannedUser.objects.get(user_id=user_id)
+        await bot.unban_chat_member(message.chat.id, user_id)
+        banned_user.delete()  # Remove from the database
+        await message.answer(f"Користувач {user_id} розблокований.")
+    except BannedUser.DoesNotExist:
+        await message.answer(f"Користувач {user_id} не був забанений.")
+
+
+# Обробник для команди /mute
+@router.message(F.text.startswith('/mute'))
+async def mute_user(message: Message, bot: Bot):
+    # Check if the user is an admin
+    if not await is_admin(message.chat.id, message.from_user.id):
+        await message.answer("Тільки адміністратори можуть використовувати цю команду.")
+        return
+
+    # Ensure the command is a reply to a message
+    if not message.reply_to_message:
+        await message.answer("Ця команда має бути відповіддю на повідомлення!")
+        return
+
+    try:
+        muteint = int(message.text.split()[1])  # Мute duration
+        mutetype = message.text.split()[2]  # Time unit (hour, minute, day)
+        comment = " ".join(message.text.split()[3:])  # Reason for mute
+    except IndexError:
+        await message.answer('Бракує аргументів! Приклад: `/mute 1 хвилина причина`')
+        return
+
+    # Calculate mute end time
+    if mutetype in ["г", "годин", "година"]:
+        dt = datetime.now() + timedelta(hours=muteint)
+    elif mutetype in ["х", "хвилин", "хвилини"]:
+        dt = datetime.now() + timedelta(minutes=muteint)
+    elif mutetype in ["д", "днів", "день"]:
+        dt = datetime.now() + timedelta(days=muteint)
+    else:
+        await message.answer("Невідомий тип часу. Використовуйте 'г', 'х' або 'д'.")
+        return
+
+    # Mute the user
+    timestamp = dt.timestamp()
+    await bot.restrict_chat_member(
+        message.chat.id,
+        message.reply_to_message.from_user.id,
+        types.ChatPermissions(can_send_messages=False),
+        until_date=timestamp
+    )
+
+    # Add muted user to the database
+    MutedUser.objects.create(
+        user_id=message.reply_to_message.from_user.id,
+        first_name=message.reply_to_message.from_user.first_name,
+        end_time=dt
+    )
+
+    # Send confirmation
+    await message.answer(
+        f' | <b>Рішення було прийняте:</b> {message.from_user.get_mention(as_html=True)}\n'
+        f' | <b>Порушник:</b> <a href="tg://user?id={message.reply_to_message.from_user.id}">{message.reply_to_message.from_user.first_name}</a>\n'
+        f'⏰ | <b>Термін покарання:</b> {muteint} {mutetype}\n'
+        f' | <b>Причина:</b> {comment}',
+        parse_mode='html'
+    )
+
+
+# Обробник для команди /unmute
+@router.message(F.text == '/unmute')
+async def unmute_user(message: types.Message):
+    user_id = message.reply_to_message.from_user.id
+
+    try:
+        muted_user = MutedUser.objects.get(user_id=user_id)
+        await bot.restrict_chat_member(message.chat.id, user_id, can_send_messages=True)
+        muted_user.delete()  # Remove from the database
+        await message.answer(f"Користувач {user_id} розмучений.")
+    except MutedUser.DoesNotExist:
+        await message.answer(f"Користувач {user_id} не був замучений.")
+
+
+# Обробник для команди /banned_list
+@router.message(F.text == '/banned_list')
+async def banned_list(message: types.Message):
+    banned_users = BannedUser.objects.all()
+    if banned_users:
+        banned_list_str = ""
+        for user in banned_users:
+            banned_list_str += f"🚫 Name: {user.first_name}, Забанений: {user.banned_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        await message.answer(f"Забанені користувачі:\n{banned_list_str}")
+    else:
+        await message.answer("Немає забанених користувачів.")
+
+
+# Обробник для команди /muted_list
+@router.message(F.text == '/muted_list')
+async def muted_list(message: types.Message):
+    muted_users = MutedUser.objects.all()
+    if muted_users:
+        muted_list_str = ""
+        for user in muted_users:
+            muted_list_str += f"🧑‍🦰 Name: {user.first_name}, Мут до: {user.end_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        await message.answer(f"Замучені користувачі:\n{muted_list_str}")
+    else:
+        await message.answer("Немає замучених користувачів.")
+
+
 @router.message(F.text.startswith('/kik'))
 async def unban_user(message: Message, bot: Bot):
     # Check if the user is an admin
@@ -224,6 +201,8 @@ async def unban_user(message: Message, bot: Bot):
 
     # Send confirmation message
     await message.answer(f'Покинув нас: {message.reply_to_message.from_user.first_name}')
+
+
 
 
 @router.message()

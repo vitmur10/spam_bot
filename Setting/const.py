@@ -18,7 +18,7 @@ bot = Bot(token=API_TOKEN)  # Використовуємо default для нал
 dp = Dispatcher(storage=MemoryStorage())
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "Setting.settings")
 application = get_wsgi_application()
-from Setting.setting_bot.models import ModerationSettings
+from setting_bot.models import ModerationSettings, BannedUser, MutedUser
 
 def get_moderation_settings():
     settings = ModerationSettings.objects.first()
@@ -42,27 +42,6 @@ MAX_MENTIONS = settings["MAX_MENTIONS"]
 MAX_EMOJIS = settings["MAX_EMOJIS"]
 MIN_CAPS_LENGTH = settings["MIN_CAPS_LENGTH"]
 MUTE_TIME = settings["MUTE_TIME"]
-
-# ❌ Слова, за які бот МУТИТЬ (тимчасова заборона на відправку повідомлень)
-BAD_WORDS_MUTE = {"спам", "флуд", "лох", "реклама", "лохотрон"}
-
-# ❌ Слова, за які бот КІКАЄ (видаляє з чату)
-BAD_WORDS_KICK = {"тролінг", "деструктив", "образа"}
-
-# ❌ Слова, за які бот БАНИТЬ (перманентний бан)
-BAD_WORDS_BAN = {"нацизм", "расизм", "тероризм", "дитяче порно"}
-
-# Максимальна кількість тегів @ перед видаленням
-MAX_MENTIONS = 5
-
-# Максимальна кількість емодзі перед видаленням
-MAX_EMOJIS = 10
-
-# Мінімальна довжина капс-лока для виявлення "крику"
-MIN_CAPS_LENGTH = 10
-
-# Час мута в секундах (наприклад, 1 година = 3600 секунд)
-MUTE_TIME = 3600
 
 # Регулярний вираз для пошуку посилань
 URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")
