@@ -5,8 +5,10 @@ from aiogram import Router, F
 from aiogram import types
 from aiogram.types import Message
 from aiogram.types import ChatPermissions
-
+from aiogram.filters import Filter, Command
+from django.db.models import Exists, OuterRef
 from const import *
+from django.utils.timezone import now
 
 router = Router()
 ChatPermissions(can_send_messages=False)
@@ -14,6 +16,26 @@ ChatPermissions(can_send_messages=False)
 banned_users = []
 muted_users = []
 
+async def log_action(chat_id, user_id, username, action_type, message_text=None):
+    await sync_to_async(ActionLog.objects.create)(
+        chat_id=chat_id,
+        user_id=user_id,
+        username=username,
+        action_type=action_type,
+        message_text=message_text
+    )
+
+async def clean_old_logs(days=30):
+    delete_before = now() - timedelta(days=days)
+    await sync_to_async(ActionLog.objects.filter(created_at__lt=delete_before).delete)()
+
+# Фільтр для перевірки чату
+class IsChatAllowed(Filter):
+    async def __call__(self, message: types.Message) -> bool:
+        return await is_chat_allowed(message.chat.id)
+
+async def is_chat_allowed(chat_id: int) -> bool:
+    return await Chats.objects.filter(chat_id=chat_id).aexists()
 
 @router.message(
     F.new_chat_members |  # Додавання нового учасника
@@ -46,8 +68,19 @@ async def is_admin(chat_id, user_id):
 
 
 # Обробник для команди /ban
+@router.message(F.text.startswith("/chat_id"))
+async def get_chat_id(message: types.Message):
+    await message.answer(f"Chat ID: `{message.chat.id}`", parse_mode="Markdown")
+    return
 
-@router.message(F.text.startswith('/ban'))
+
+@router.message(Command("update_whitelist"))
+async def update_whitelist(message: types.Message):
+    whitelisted_users = await get_whitelisted_users()  # Функція повертає список
+    await message.answer(f"Оновлено білий список. Користувачів: {len(whitelisted_users)}")
+
+
+@router.message(IsChatAllowed(), F.text.startswith('/ban'))
 async def ban_user(message: Message, bot: Bot):
     # Check if the user is an admin
     if not await is_admin(message.chat.id, message.from_user.id):
@@ -87,8 +120,9 @@ async def unban_user(message: types.Message):
 
 
 # Обробник для команди /mute
-@router.message(F.text.startswith('/mute'))
+@router.message(IsChatAllowed(),F.text.startswith('/mute'))
 async def mute_user(message: Message, bot: Bot):
+
     # Check if the user is an admin
     if not await is_admin(message.chat.id, message.from_user.id):
         #await message.answer("Тільки адміністратори можуть використовувати цю команду.")
@@ -145,7 +179,7 @@ async def mute_user(message: Message, bot: Bot):
 
 
 # Обробник для команди /unmute
-"""@router.message(F.text == '/unmute')
+"""@router.message(IsChatAllowed(),F.text == '/unmute')
 async def unmute_user(message: types.Message):
     user_id = message.reply_to_message.from_user.id
 
@@ -159,7 +193,7 @@ async def unmute_user(message: types.Message):
 
 
 # Обробник для команди /banned_list
-"""@router.message(F.text == '/banned_list')
+"""@router.message(IsChatAllowed(),F.text == '/banned_list')
 async def banned_list(message: types.Message):
     banned_users = BannedUser.objects.all()
     if banned_users:
@@ -172,7 +206,7 @@ async def banned_list(message: types.Message):
 
 
 # Обробник для команди /muted_list
-"""@router.message(F.text == '/muted_list')
+"""@router.message(IsChatAllowed(),F.text == '/muted_list')
 async def muted_list(message: types.Message):
     muted_users = MutedUser.objects.all()
     if muted_users:
@@ -184,7 +218,7 @@ async def muted_list(message: types.Message):
         await message.answer("Немає замучених користувачів.")"""
 
 
-@router.message(F.text.startswith('/kik'))
+@router.message(IsChatAllowed(),F.text.startswith('/kik'))
 async def unban_user(message: Message, bot: Bot):
     # Check if the user is an admin
     if not await is_admin(message.chat.id, message.from_user.id):
@@ -203,8 +237,18 @@ async def unban_user(message: Message, bot: Bot):
     #await message.answer(f'Покинув нас: {message.reply_to_message.from_user.first_name}')
 
 
-@router.message()
+@router.message(IsChatAllowed())
 async def filter_spam(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    first_name = message.from_user.full_name
+    username = message.from_user.username
+    chat_id = message.chat.id
+
+    whitelisted_users = await get_whitelisted_users()
+
+    if user_id in whitelisted_users:
+        return  # Якщо юзер у білому списку – не перевіряємо його
+
     settings = await get_moderation_settings()
 
     BAD_WORDS_MUTE = settings["BAD_WORDS_MUTE"]
@@ -216,57 +260,89 @@ async def filter_spam(message: Message, bot: Bot):
     MUTE_TIME = settings["MUTE_TIME"]
     DELETE_LINKS = settings["DELETE_LINKS"]
     EMOJI_LIST = settings["EMOJI_LIST"]
+
     text = re.sub(r"[^\w\s]", "", message.text.lower()) if message.text else ""
 
-    if any(word.lower() in text for word in BAD_WORDS_MUTE):
-        await bot.delete_message(message.chat.id, message.message_id)
-        user_id = message.from_user.id
-        mute_time = MUTE_TIME / 60
-        current_time = datetime.now()
+    # Перевірка на заборонені слова для MUTE
+    if any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_MUTE):
+        await bot.delete_message(chat_id, message.message_id)
+        await bot.restrict_chat_member(chat_id, user_id, ChatPermissions(can_send_messages=False))
 
-        await bot.restrict_chat_member(message.chat.id, user_id, ChatPermissions(can_send_messages=False))
-        muted_users.append({
-            "user_id": user_id,
-            "first_name": message.from_user.full_name,
-            "end_time": current_time + timedelta(minutes=mute_time)
-        })
+        mute_end_time = now() + timedelta(minutes=MUTE_TIME / 60)
 
-        while True:
-            muted_user = next((user for user in muted_users if user["user_id"] == user_id), None)
-            if muted_user and muted_user["end_time"] <= datetime.now():
-                await bot.restrict_chat_member(message.chat.id, user_id, ChatPermissions(can_send_messages=True))
-                muted_users.remove(muted_user)
-                break
-            await asyncio.sleep(1)
+        # Додаємо користувача до MutedUser
+        await sync_to_async(MutedUser.objects.update_or_create)(
+            user_id=user_id,
+            defaults={"first_name": first_name, "end_time": mute_end_time}
+        )
 
-    elif any(word.lower() in text for word in BAD_WORDS_KICK):
-        await bot.delete_message(message.chat.id, message.message_id)
-        await bot.ban_chat_member(message.chat.id, message.from_user.id)
-        await bot.unban_chat_member(message.chat.id, message.from_user.id)
+        # Логуємо дію
+        await log_action(chat_id, user_id, username, "spam_deleted", message.text)
 
-    elif any(word.lower() in text for word in BAD_WORDS_BAN):
-        await bot.delete_message(message.chat.id, message.message_id)
-        await bot.ban_chat_member(message.chat.id, message.from_user.id)
+        return  # Завершуємо функцію
+
+    # Перевірка на заборонені слова для KICK
+    elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_KICK):
+        await bot.delete_message(chat_id, message.message_id)
+        await bot.ban_chat_member(chat_id, user_id)
+        await bot.unban_chat_member(chat_id, user_id)
+
+        # Логуємо дію
+        await log_action(chat_id, user_id, username, "spam_deleted", message.text)
+
+        return  # Завершуємо функцію
+
+    # Перевірка на заборонені слова для BAN
+    elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_BAN):
+        await bot.delete_message(chat_id, message.message_id)
+        await bot.ban_chat_member(chat_id, user_id)
+
+        # Додаємо користувача до BannedUser
+        await sync_to_async(BannedUser.objects.get_or_create)(user_id=user_id, defaults={"first_name": first_name})
+
+        # Логуємо дію
+        await log_action(chat_id, user_id, username, "spam_deleted", message.text)
+
+        return  # Завершуємо функцію
 
     # Перевірка на посилання
-    if URL_PATTERN.search(message.text):
-        if DELETE_LINKS:
-            await bot.delete_message(message.chat.id, message.message_id)
-            return
+    if URL_PATTERN.search(message.text) and DELETE_LINKS:
+        await bot.delete_message(message.chat.id, message.message_id)
+
+        # Логуємо дію
+        await log_action(chat_id, user_id, username, "spam_deleted", message.text)
+
+        return  # Завершуємо функцію
 
     # Перевірка на велику кількість @
     if text.count("@") >= MAX_MENTIONS:
         await bot.delete_message(message.chat.id, message.message_id)
-        return
+
+        # Логуємо дію
+        await log_action(chat_id, user_id, username, "spam_deleted", message.text)
+
+        return  # Завершуємо функцію
 
     # Перевірка на велику кількість емодзі
     emoji_count = sum(1 for char in text if char in EMOJI_LIST)
     if emoji_count >= MAX_EMOJIS:
         await bot.delete_message(message.chat.id, message.message_id)
-        return
+
+        # Логуємо дію
+        await log_action(chat_id, user_id, username, "spam_deleted", message.text)
+
+        return  # Завершуємо функцію
 
     # Перевірка на капс
     caps_text = sum(1 for char in text if char.isupper())
     if caps_text >= MIN_CAPS_LENGTH and caps_text > len(text) * 0.7:
         await bot.delete_message(message.chat.id, message.message_id)
-        return
+
+        # Логуємо дію
+        await log_action(chat_id, user_id, username, "spam_deleted", message.text)
+
+        return  # Завершуємо функцію
+
+    # Якщо повідомлення пройшло всі перевірки, збільшуємо лічильник повідомлень
+    await increment_message_count(user_id=user_id, chat_id=chat_id)
+

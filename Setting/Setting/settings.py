@@ -74,7 +74,7 @@ WSGI_APPLICATION = "Setting.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/4.1/ref/settings/#databases
 
-DATABASES = {
+"""DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": "mydb_bot",
@@ -82,6 +82,13 @@ DATABASES = {
         "PASSWORD": "botspams",
         "HOST": "db",  # Назва контейнера PostgreSQL
         "PORT": "5432",
+    }
+}"""
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
     }
 }
 

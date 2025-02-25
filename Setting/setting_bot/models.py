@@ -1,5 +1,15 @@
 from django.db import models
 
+class Chats(models.Model):
+    chat_id = models.IntegerField("ІД чату")
+    name = models.CharField("Назва чату", max_length=70)
+
+    def __str__(self):
+        return "Чат: {}".format(self.name)
+
+    class Meta:
+        verbose_name = "Чати"
+        verbose_name_plural = "Чати"
 
 class ModerationSettings(models.Model):
     mute_words = models.TextField("Слова для мута", help_text="Перераховуйте через кому",
@@ -52,3 +62,24 @@ class MutedUser(models.Model):
 
     def __str__(self):
         return f"{self.first_name} ({self.user_id}) - Muted until {self.end_time}"
+
+
+class UserMessageCount(models.Model):
+    user_id = models.BigIntegerField(unique=True)
+    chat_id = models.BigIntegerField()
+    message_count = models.IntegerField(default=0)
+
+    def __str__(self):
+        return f"User {self.user_id} in Chat {self.chat_id}: {self.message_count} messages"
+
+
+class ActionLog(models.Model):
+    chat_id = models.BigIntegerField()
+    user_id = models.BigIntegerField()
+    username = models.CharField(max_length=255, null=True, blank=True)
+    action_type = models.CharField(max_length=50)  # Наприклад: 'spam_deleted', 'user_muted'
+    message_text = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.action_type} - {self.username or self.user_id} ({self.created_at})"
