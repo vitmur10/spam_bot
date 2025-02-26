@@ -16,7 +16,42 @@ ChatPermissions(can_send_messages=False)
 banned_users = []
 muted_users = []
 
+async def add_user(chat_id, user_id):
+    user, created = await sync_to_async(User.objects.get_or_create)(
+        user_id=user_id,
+        chat_id=chat_id
+    )
+    return user, created
 
+async def mute_user(user_id, chat_id):
+    user = await sync_to_async(User.objects.get)(user_id=user_id)
+    user.is_muted = True
+    user.mute_until = timezone.now() + timedelta(hours=24)  # Наприклад, на 24 години
+    await sync_to_async(user.save)()
+
+    # Мутити користувача в Telegram
+    await bot.restrict_chat_member(chat_id, user_id, permissions={'can_send_messages': False})
+    return user
+
+async def unmute_user(user_id, chat_id):
+    user = await sync_to_async(User.objects.get)(user_id=user_id)
+    user.is_muted = False
+    user.mute_until = None
+    await sync_to_async(user.save)()
+
+    # Розмутити користувача в Telegram
+    await bot.restrict_chat_member(chat_id, user_id, permissions={'can_send_messages': True})
+    return user
+
+async def ban_user(user_id, chat_id):
+    user = await sync_to_async(User.objects.get)(user_id=user_id)
+    user.is_banned = True
+    user.banned_at = timezone.now()
+    await sync_to_async(user.save)()
+
+    # Банити користувача в Telegram
+    await bot.ban_chat_member(chat_id, user_id)
+    return user
 
 async def unban_user(user_id, chat_id):
     user = await sync_to_async(User.objects.get)(user_id=user_id)
