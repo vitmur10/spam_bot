@@ -19,7 +19,7 @@ bot = Bot(token=API_TOKEN)  # Використовуємо default для нал
 dp = Dispatcher(storage=MemoryStorage())
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "Setting.settings")
 application = get_wsgi_application()
-from setting_bot.models import ModerationSettings, BannedUser, MutedUser, Chats, UserMessageCount, ActionLog
+from setting_bot.models import ModerationSettings, BannedUser, MutedUser, Chats, UserMessageCount, ActionLog, User
 
 WHITE_LIST_THRESHOLD = 15  # Мінімальна кількість повідомлень
 

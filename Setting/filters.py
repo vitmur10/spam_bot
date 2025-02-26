@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Router, F
 from aiogram import types
@@ -15,6 +15,19 @@ ChatPermissions(can_send_messages=False)
 
 banned_users = []
 muted_users = []
+
+
+
+async def unban_user(user_id, chat_id):
+    user = await sync_to_async(User.objects.get)(user_id=user_id)
+    user.is_banned = False
+    user.banned_at = None
+    await sync_to_async(user.save)()
+
+    # Розбанити користувача в Telegram
+    await bot.unban_chat_member(chat_id, user_id)
+    return user
+
 
 async def log_action(chat_id, user_id, username, action_type, message_text=None):
     await sync_to_async(ActionLog.objects.create)(
@@ -243,6 +256,7 @@ async def filter_spam(message: Message, bot: Bot):
     first_name = message.from_user.full_name
     username = message.from_user.username
     chat_id = message.chat.id
+    await add_user(chat_id, user_id)
 
     whitelisted_users = await get_whitelisted_users()
 

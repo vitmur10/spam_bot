@@ -83,3 +83,15 @@ class ActionLog(models.Model):
 
     def __str__(self):
         return f"{self.action_type} - {self.username or self.user_id} ({self.created_at})"
+
+
+class User(models.Model):
+    user_id = models.BigIntegerField(unique=True)
+    chat_id = models.BigIntegerField()
+    is_banned = models.BooleanField(default=False)
+    is_muted = models.BooleanField(default=False)
+    mute_until = models.DateTimeField(null=True, blank=True)
+    banned_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"User: {self.user_id} in Chat: {self.chat_id}"

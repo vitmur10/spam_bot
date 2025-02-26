@@ -67,3 +67,10 @@ class ActionLogAdmin(admin.ModelAdmin):
         self.message_user(request, f"Видалено {deleted_count} старих логів.")
 
     delete_old_logs.short_description = "Видалити логи старші за 30 днів"
+
+
+@admin.register(User)
+class UserAdmin(admin.ModelAdmin):
+    list_display = ('user_id', 'chat_id', 'is_banned', 'is_muted', 'mute_until', 'banned_at')
+    list_filter = ('is_banned', 'is_muted')
+    search_fields = ('user_id', 'chat_id')
