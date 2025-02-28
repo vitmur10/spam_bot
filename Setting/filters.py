@@ -122,12 +122,6 @@ async def get_chat_id(message: types.Message):
     return
 
 
-@router.message(Command("update_whitelist"))
-async def update_whitelist(message: types.Message):
-    whitelisted_users = await get_whitelisted_users()  # Функція повертає список
-    await message.answer(f"Оновлено білий список. Користувачів: {len(whitelisted_users)}")
-
-
 @router.message(IsChatAllowed(), F.text.startswith('/ban'))
 async def ban_user(message: Message, bot: Bot):
     # Check if the user is an admin
