@@ -29,15 +29,24 @@ def get_moderation_settings():
     if not settings:
         return None
     return {
-        "BAD_WORDS_MUTE": settings.mute_words.split(", "),
-        "BAD_WORDS_KICK": settings.kick_words.split(", "),
-        "BAD_WORDS_BAN": settings.ban_words.split(", "),
+        "BAD_WORDS_MUTE": settings.mute_words.split(", "),  # Розбиваємо через кому
+        "BAD_WORDS_KICK": settings.kick_words.split(", "),  # Розбиваємо через кому
+        "BAD_WORDS_BAN": settings.ban_words.split(", "),  # Розбиваємо через кому
         "MAX_MENTIONS": settings.max_mentions,
         "MAX_EMOJIS": settings.max_emojis,
         "MIN_CAPS_LENGTH": settings.min_caps_length,
         "MUTE_TIME": settings.mute_time,
         "DELETE_LINKS": settings.delete_links,
-        "EMOJI_LIST": settings.emoji_list  # Дістаємо як рядок
+        "DELETE_AUDIO": settings.delete_audio,  # Нове поле для аудіо
+        "DELETE_VIDEO": settings.delete_video,  # Нове поле для відео
+        "DELETE_VIDEO_NOTES": settings.delete_video_notes,  # Нове поле для відео повідомлень
+        "DELETE_STICKERS": settings.delete_stickers,  # Нове поле для стикерів
+        "DELETE_EMOJIS": settings.delete_emojis,  # Нове поле для емодзі
+        "DELETE_CHINESE": settings.delete_chinese,  # Нове поле для китайських ієрогліфів
+        "DELETE_RTL": settings.delete_rtl,  # Нове поле для RTL символів
+        "DELETE_EMAILS": settings.delete_emails,  # Нове поле для email
+        "DELETE_REFERRAL_LINKS": settings.delete_referral_links,  # Нове поле для реферальних посилань
+        "EMOJI_LIST": settings.emoji_list.split(",")  # Розбиваємо через кому для емодзі
     }
 
 

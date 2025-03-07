@@ -85,6 +85,37 @@ class IsChatAllowed(Filter):
 async def is_chat_allowed(chat_id: int) -> bool:
     return await Chats.objects.filter(chat_id=chat_id).aexists()
 
+
+"""async def auto_unban_unmute(bot: Bot):
+    while True:
+        now_time = datetime.now()
+
+        # Отримуємо всіх користувачів, яким вже можна зняти мут або бан
+        muted_users = await MutedUser.filter(end_time__lte=now_time)
+
+        for user in muted_users:
+            try:
+                # Знімаємо обмеження в чаті (розмут/розбан)
+                await bot.restrict_chat_member(
+                    chat_id=CHAT_ID,
+                    user_id=user.user_id,
+                    permissions=types.ChatPermissions(
+                        can_send_messages=True,
+                        can_send_media_messages=True,
+                        can_send_other_messages=True,
+                        can_add_web_page_previews=True
+                    ),
+                )
+                print(f"Розмучено/розбанено користувача {user.user_id}")
+
+                # Видаляємо запис з бази після зняття обмежень
+                await user.delete()
+            except Exception as e:
+                print(f"Помилка при знятті мута/бану для {user.user_id}: {e}")
+
+        # Чекаємо 60 секунд перед наступною перевіркою
+        await asyncio.sleep(60)
+"""
 @router.message(
     F.new_chat_members |  # Додавання нового учасника
     F.left_chat_member |  # Вихід/видалення учасника
@@ -272,12 +303,6 @@ async def unban_user(message: Message, bot: Bot):
         #await message.answer("Ця команда має бути відповіддю на повідомлення!")
         return
 
-    # Unban the user
-    #await bot.unban_chat_member(message.chat.id, message.reply_to_message.from_user.id)
-
-    # Send confirmation message
-    #await message.answer(f'Покинув нас: {message.reply_to_message.from_user.first_name}')
-
 
 @router.message(IsChatAllowed())
 async def filter_spam(message: Message, bot: Bot):
@@ -302,6 +327,15 @@ async def filter_spam(message: Message, bot: Bot):
     MIN_CAPS_LENGTH = settings["MIN_CAPS_LENGTH"]
     MUTE_TIME = settings["MUTE_TIME"]
     DELETE_LINKS = settings["DELETE_LINKS"]
+    DELETE_AUDIO = settings["DELETE_AUDIO"]
+    DELETE_VIDEO = settings["DELETE_VIDEO"]
+    DELETE_VIDEO_NOTES = settings["DELETE_VIDEO_NOTES"]
+    DELETE_STICKERS = settings["DELETE_STICKERS"]
+    DELETE_EMOJIS = settings["DELETE_EMOJIS"]
+    DELETE_CHINESE = settings["DELETE_CHINESE"]
+    DELETE_RTL = settings["DELETE_RTL"]
+    DELETE_EMAILS = settings["DELETE_EMAILS"]
+    DELETE_REFERRAL_LINKS = settings["DELETE_REFERRAL_LINKS"]
     EMOJI_LIST = settings["EMOJI_LIST"]
 
     text = re.sub(r"[^\w\s]", "", message.text.lower()) if message.text else ""
@@ -368,7 +402,7 @@ async def filter_spam(message: Message, bot: Bot):
 
     # Перевірка на велику кількість емодзі
     emoji_count = sum(1 for char in text if char in EMOJI_LIST)
-    if emoji_count >= MAX_EMOJIS:
+    if emoji_count >= MAX_EMOJIS and DELETE_EMOJIS:
         await bot.delete_message(message.chat.id, message.message_id)
 
         # Логуємо дію
@@ -386,6 +420,55 @@ async def filter_spam(message: Message, bot: Bot):
 
         return  # Завершуємо функцію
 
+    # Перевірка на видалення аудіо
+    if message.audio and DELETE_AUDIO:
+        await bot.delete_message(chat_id, message.message_id)
+        await log_action(chat_id, user_id, username, "spam_deleted", "Audio message")
+        return
+
+    # Перевірка на видалення відео
+    if message.video and DELETE_VIDEO:
+        await bot.delete_message(chat_id, message.message_id)
+        await log_action(chat_id, user_id, username, "spam_deleted", "Video message")
+        return
+
+    # Перевірка на видалення відеосообщень
+    if message.video_note and DELETE_VIDEO_NOTES:
+        await bot.delete_message(chat_id, message.message_id)
+        await log_action(chat_id, user_id, username, "spam_deleted", "Video note")
+        return
+
+    # Перевірка на видалення стикерів
+    if message.sticker and DELETE_STICKERS:
+        await bot.delete_message(chat_id, message.message_id)
+        await log_action(chat_id, user_id, username, "spam_deleted", "Sticker")
+        return
+
+    # Перевірка на китайські ієрогліфи
+    if DELETE_CHINESE and any("\u4e00" <= char <= "\u9fff" for char in message.text):
+        await bot.delete_message(chat_id, message.message_id)
+        await log_action(chat_id, user_id, username, "spam_deleted", "Chinese characters")
+        return
+
+    # Перевірка на RTL символи
+    if DELETE_RTL and any("\u0590" <= char <= "\u08ff" for char in message.text):
+        await bot.delete_message(chat_id, message.message_id)
+        await log_action(chat_id, user_id, username, "spam_deleted", "RTL characters")
+        return
+
+    # Перевірка на email адреси
+    if DELETE_EMAILS and re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", message.text):
+        await bot.delete_message(chat_id, message.message_id)
+        await log_action(chat_id, user_id, username, "spam_deleted", "Email address")
+        return
+
+    # Перевірка на реферальні посилання
+    if DELETE_REFERRAL_LINKS and re.search(r"referral_link_pattern", message.text):
+        await bot.delete_message(chat_id, message.message_id)
+        await log_action(chat_id, user_id, username, "spam_deleted", "Referral link")
+        return
+
     # Якщо повідомлення пройшло всі перевірки, збільшуємо лічильник повідомлень
     await increment_message_count(user_id=user_id, chat_id=chat_id)
+
 

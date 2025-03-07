@@ -25,6 +25,15 @@ class ModerationSettings(models.Model):
     mute_time = models.IntegerField("Час мута (секунди)", default=3600)
 
     delete_links = models.BooleanField("Видаляти повідомлення з посиланнями", default=True)
+    delete_audio = models.BooleanField("Видаляти аудіозаписи", default=False)
+    delete_video = models.BooleanField("Видаляти відео", default=False)
+    delete_video_notes = models.BooleanField("Видаляти відеосообщення", default=False)
+    delete_stickers = models.BooleanField("Видаляти стикери", default=False)
+    delete_emojis = models.BooleanField("Видаляти занадто багато емодзі", default=True)
+    delete_chinese = models.BooleanField("Видаляти китайські ієрогліфи", default=False)
+    delete_rtl = models.BooleanField("Видаляти повідомлення з RTL символами", default=False)
+    delete_emails = models.BooleanField("Видаляти email адреси", default=True)
+    delete_referral_links = models.BooleanField("Видаляти реферальні посилання Telegram", default=True)
 
     emoji_list = models.TextField("Список емодзі", help_text="Перерахуйте емодзі без пробілів",
                                   default="😀😁😂🤣😃😄😅😆😉😊😋😎😜😝😛🤪🤩🤯🥳😇🥰😍😘")
@@ -35,6 +44,7 @@ class ModerationSettings(models.Model):
     class Meta:
         verbose_name = "Налаштування модерації"
         verbose_name_plural = "Налаштування модерації"
+
 
 
 class BannedUser(models.Model):
