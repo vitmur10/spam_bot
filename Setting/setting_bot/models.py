@@ -49,6 +49,7 @@ class ModerationSettings(models.Model):
 
 class BannedUser(models.Model):
     user_id = models.BigIntegerField(unique=True)
+    chat_id = models.BigIntegerField()
     first_name = models.CharField(max_length=255, blank=True, null=True)
     banned_at = models.DateTimeField(auto_now_add=True)
 
@@ -62,6 +63,7 @@ class BannedUser(models.Model):
 
 class MutedUser(models.Model):
     user_id = models.BigIntegerField(unique=True)
+    chat_id = models.BigIntegerField()
     first_name = models.CharField(max_length=255, blank=True, null=True)
     end_time = models.DateTimeField()
 
@@ -78,9 +80,10 @@ class UserMessageCount(models.Model):
     user_id = models.BigIntegerField(unique=True)
     chat_id = models.BigIntegerField()
     message_count = models.IntegerField(default=0)
+    name = models.CharField(max_length=255, null=True, blank=True)
 
     def __str__(self):
-        return f"User {self.user_id} in Chat {self.chat_id}: {self.message_count} messages"
+        return f"User {self.user_id} ({self.name or 'No Name'}) in Chat {self.chat_id}: {self.message_count} messages"
 
 
 class ActionLog(models.Model):

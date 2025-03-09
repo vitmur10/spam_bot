@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+import pytz
 from aiogram import Router, F
 from aiogram import types
 from aiogram.types import Message
@@ -15,6 +16,7 @@ ChatPermissions(can_send_messages=False)
 
 banned_users = []
 muted_users = []
+
 
 async def add_user(chat_id, user_id):
     user, created = await sync_to_async(User.objects.get_or_create)(
@@ -86,36 +88,44 @@ async def is_chat_allowed(chat_id: int) -> bool:
     return await Chats.objects.filter(chat_id=chat_id).aexists()
 
 
-"""async def auto_unban_unmute(bot: Bot):
-    while True:
-        now_time = datetime.now()
+async def get_muted_users():
+    """Отримуємо список користувачів, яких потрібно розмутити/розбанити"""
+    now_plus_3 = datetime.now(timezone(timedelta(hours=3)))  # Київський часовий пояс (UTC+3)
+    muted_users = await sync_to_async(list)(MutedUser.objects.filter(end_time__lte=now_plus_3))
+    return muted_users
 
-        # Отримуємо всіх користувачів, яким вже можна зняти мут або бан
-        muted_users = await MutedUser.filter(end_time__lte=now_time)
+async def auto_unban_unmute(bot: Bot):
+    while True:
+        muted_users = await get_muted_users()  # Виклик функції отримання користувачів
 
         for user in muted_users:
-            try:
-                # Знімаємо обмеження в чаті (розмут/розбан)
-                await bot.restrict_chat_member(
-                    chat_id=CHAT_ID,
-                    user_id=user.user_id,
-                    permissions=types.ChatPermissions(
-                        can_send_messages=True,
-                        can_send_media_messages=True,
-                        can_send_other_messages=True,
-                        can_add_web_page_previews=True
-                    ),
-                )
-                print(f"Розмучено/розбанено користувача {user.user_id}")
+            # Знімаємо обмеження в чаті
+            await bot.restrict_chat_member(
+                chat_id=user.chat_id,
+                user_id=user.user_id,
+                permissions=types.ChatPermissions(
+                    can_send_messages=True,
+                    can_send_media_messages=True,
+                    can_send_other_messages=True,
+                    can_add_web_page_previews=True
+                ),
+            )
+            # Логуємо дію в ActionLog
+            await sync_to_async(ActionLog.objects.create)(
+                chat_id=user.chat_id,
+                user_id=user.user_id,
+                username=user.first_name,
+                action_type='unmute_unban',
+                message_text=f"User {user.user_id} was unmuted.",
+                created_at=datetime.now()
+            )
 
-                # Видаляємо запис з бази після зняття обмежень
-                await user.delete()
-            except Exception as e:
-                print(f"Помилка при знятті мута/бану для {user.user_id}: {e}")
+            # Видаляємо запис з бази після розмуту/розбану
+            await sync_to_async(user.delete)()
 
         # Чекаємо 60 секунд перед наступною перевіркою
         await asyncio.sleep(60)
-"""
+
 @router.message(
     F.new_chat_members |  # Додавання нового учасника
     F.left_chat_member |  # Вихід/видалення учасника
@@ -344,12 +354,13 @@ async def filter_spam(message: Message, bot: Bot):
     if any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_MUTE):
         await bot.delete_message(chat_id, message.message_id)
         await bot.restrict_chat_member(chat_id, user_id, ChatPermissions(can_send_messages=False))
-
-        mute_end_time = now() + timedelta(minutes=MUTE_TIME / 60)
+        now_plus_3 = datetime.now(timezone(timedelta(hours=3)))
+        mute_end_time = now_plus_3 + timedelta(minutes=MUTE_TIME / 60)
 
         # Додаємо користувача до MutedUser
         await sync_to_async(MutedUser.objects.update_or_create)(
             user_id=user_id,
+            chat_id = chat_id,
             defaults={"first_name": first_name, "end_time": mute_end_time}
         )
 

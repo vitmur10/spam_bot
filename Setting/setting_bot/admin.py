@@ -15,8 +15,12 @@ class ModerationSettingsAdmin(admin.ModelAdmin):
 admin.site.register(BannedUser)
 admin.site.register(MutedUser)
 admin.site.register(Chats)
-admin.site.register(UserMessageCount)
 
+@admin.register(UserMessageCount)
+class UserMessageCountAdmin(admin.ModelAdmin):
+    list_display = ('user_id', 'chat_id', 'name', 'message_count')  # Відображення колонок
+    search_fields = ('name', 'user_id', 'chat_id')  # Додаємо пошук
+    list_filter = ('chat_id',)  # Фільтр за чатом
 
 @admin.register(ActionLog)
 class ActionLogAdmin(admin.ModelAdmin):
