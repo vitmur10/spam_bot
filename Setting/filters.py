@@ -322,7 +322,7 @@ async def filter_spam(message: Message, bot: Bot):
     chat_id = message.chat.id
     await add_user(chat_id, user_id)
 
-    whitelisted_users = await get_whitelisted_users()
+    whitelisted_users = await get_whitelisted_users(chat_id)
 
     if user_id in whitelisted_users:
         return  # Якщо юзер у білому списку – не перевіряємо його
@@ -480,6 +480,6 @@ async def filter_spam(message: Message, bot: Bot):
         return
 
     # Якщо повідомлення пройшло всі перевірки, збільшуємо лічильник повідомлень
-    await increment_message_count(user_id=user_id, chat_id=chat_id)
+    await increment_message_count(user_id=user_id, chat_id=chat_id, name=first_name)
 
 

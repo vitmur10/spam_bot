@@ -5,7 +5,7 @@ class Chats(models.Model):
     name = models.CharField("Назва чату", max_length=70)
 
     def __str__(self):
-        return "Чат: {}".format(self.name)
+        return "Чат: {} ID {}".format(self.name, self.chat_id)
 
     class Meta:
         verbose_name = "Чати"
@@ -23,7 +23,6 @@ class ModerationSettings(models.Model):
     max_emojis = models.IntegerField("Макс. емодзі", default=10)
     min_caps_length = models.IntegerField("Мін. капс", default=10)
     mute_time = models.IntegerField("Час мута (секунди)", default=3600)
-
     delete_links = models.BooleanField("Видаляти повідомлення з посиланнями", default=True)
     delete_audio = models.BooleanField("Видаляти аудіозаписи", default=False)
     delete_video = models.BooleanField("Видаляти відео", default=False)
@@ -77,13 +76,17 @@ class MutedUser(models.Model):
 
 
 class UserMessageCount(models.Model):
-    user_id = models.BigIntegerField(unique=True)
+    user_id = models.BigIntegerField()
     chat_id = models.BigIntegerField()
     message_count = models.IntegerField(default=0)
     name = models.CharField(max_length=255, null=True, blank=True)
 
+    class Meta:
+        unique_together = ('user_id', 'chat_id')
+
     def __str__(self):
         return f"User {self.user_id} ({self.name or 'No Name'}) in Chat {self.chat_id}: {self.message_count} messages"
+
 
 
 class ActionLog(models.Model):

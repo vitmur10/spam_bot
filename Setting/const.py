@@ -56,22 +56,27 @@ def get_moderation_settings():
 URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")
 
 @sync_to_async
-def get_whitelisted_users():
-    return set(UserMessageCount.objects.filter(message_count__gte=WHITE_LIST_THRESHOLD).values_list("user_id", flat=True))
-
+def get_whitelisted_users(chat_id):
+    return set(
+        UserMessageCount.objects
+        .filter(chat_id=chat_id, message_count__gte=WHITE_LIST_THRESHOLD)
+        .values_list("user_id", flat=True)
+    )
 @sync_to_async
-def increment_message_count(user_id: int, chat_id: int):
+def increment_message_count(user_id: int, chat_id: int, name):
     """Збільшує лічильник повідомлень користувача у чаті."""
     # Отримуємо або створюємо об'єкт
     user_message_count, created = UserMessageCount.objects.get_or_create(
         user_id=user_id,
         chat_id=chat_id,
+        name = name,
         defaults={'message_count': 0}  # Встановлюємо початкове значення, якщо створюється новий запис
     )
     # Збільшуємо лічильник на 1
     user_message_count.message_count += 1
 
-    # Зберігаємо зміни
-    user_message_count.save()
+    # Якщо значення змінилося, зберігаємо
+    if user_message_count.message_count != (created and 0 or user_message_count.message_count - 1):
+        user_message_count.save()
 
 
