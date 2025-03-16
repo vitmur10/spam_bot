@@ -50,35 +50,35 @@ async def save_message(message_id,chat_id, user_id, username, first_name, messag
     )
 
 
+
 @sync_to_async
 def get_moderation_settings():
-    all_settings = ModerationSettings.objects.all()  # Отримуємо всі записи
+    settings = ModerationSettings.objects.all()  # Отримуємо всі записи
 
-    moderation_data = []
-    for settings in all_settings:
-        moderation_data.append({
-            "MODERATOR": settings.user.username,
-            "BAD_WORDS_MUTE": settings.mute_words.split(", "),
-            "BAD_WORDS_KICK": settings.kick_words.split(", "),
-            "BAD_WORDS_BAN": settings.ban_words.split(", "),
-            "MAX_MENTIONS": settings.max_mentions,
-            "MAX_EMOJIS": settings.max_emojis,
-            "MIN_CAPS_LENGTH": settings.min_caps_length,
-            "MUTE_TIME": settings.mute_time,
-            "DELETE_LINKS": settings.delete_links,
-            "DELETE_AUDIO": settings.delete_audio,
-            "DELETE_VIDEO": settings.delete_video,
-            "DELETE_VIDEO_NOTES": settings.delete_video_notes,
-            "DELETE_STICKERS": settings.delete_stickers,
-            "DELETE_EMOJIS": settings.delete_emojis,
-            "DELETE_CHINESE": settings.delete_chinese,
-            "DELETE_RTL": settings.delete_rtl,
-            "DELETE_EMAILS": settings.delete_emails,
-            "DELETE_REFERRAL_LINKS": settings.delete_referral_links,
-            "EMOJI_LIST": settings.emoji_list.split(",")
-        })
-
-    return moderation_data
+    if settings.exists():  # Якщо є записи
+        first_setting = settings.first()  # Беремо перший запис
+        return {
+            "MODERATOR": first_setting.user.username,
+            "BAD_WORDS_MUTE": first_setting.mute_words.split(", "),  # Перетворюємо в список
+            "BAD_WORDS_KICK": first_setting.kick_words.split(", "),
+            "BAD_WORDS_BAN": first_setting.ban_words.split(", "),
+            "MAX_MENTIONS": first_setting.max_mentions,
+            "MAX_EMOJIS": first_setting.max_emojis,
+            "MIN_CAPS_LENGTH": first_setting.min_caps_length,
+            "MUTE_TIME": first_setting.mute_time,
+            "DELETE_LINKS": first_setting.delete_links,
+            "DELETE_AUDIO": first_setting.delete_audio,
+            "DELETE_VIDEO": first_setting.delete_video,
+            "DELETE_VIDEO_NOTES": first_setting.delete_video_notes,
+            "DELETE_STICKERS": first_setting.delete_stickers,
+            "DELETE_EMOJIS": first_setting.delete_emojis,
+            "DELETE_CHINESE": first_setting.delete_chinese,
+            "DELETE_RTL": first_setting.delete_rtl,
+            "DELETE_EMAILS": first_setting.delete_emails,
+            "DELETE_REFERRAL_LINKS": first_setting.delete_referral_links,
+            "EMOJI_LIST": first_setting.emoji_list.split(", ")
+        }
+    return {}  # Якщо немає записів, повертаємо порожній словник
 
 # Регулярний вираз для пошуку посилань
 URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")
