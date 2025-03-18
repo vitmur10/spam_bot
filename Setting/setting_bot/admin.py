@@ -1,10 +1,14 @@
-from django.contrib import admin
-from django.http import HttpResponse
+import asyncio
 import csv
 import json
-from django.utils.timezone import now
+import os
 from datetime import timedelta
+
+from django.contrib import admin
+from django.http import HttpResponse
+from .views import *
 from .models import *
+
 
 
 @admin.register(ModerationSettings)
@@ -124,29 +128,106 @@ class ActionLogAdmin(admin.ModelAdmin):
 
 
 
-
-@admin.register(User)
 class UserAdmin(admin.ModelAdmin):
-    list_display = ('user_id', 'chat_name', 'is_banned', 'is_muted', 'mute_until', 'banned_at')
-    list_filter = ('is_banned', 'is_muted', 'chats_names')  # Corrected: using chats_names as the filter
-    search_fields = ('user_id',)
+    list_display = ('user_id', 'first_name', 'chats_names', 'is_banned', 'is_muted', 'mute_until')
+    actions = ['ban_user', 'unban_user', 'mute_user', 'unmute_user']
 
-    def chat_name(self, obj):  # Method to return the chat name
-        return obj.chats_names.name if obj.chats_names else "Без чату"
-    chat_name.short_description = "Назва чату"
+    # Функція для бана користувача
+    def ban_user(self, request, queryset):
+        for user in queryset:
+            user.banned_at = now()
+            user.is_banned = True
+            user.save()
 
-@admin.register(Message)
-class MessageAdmin(admin.ModelAdmin):
-    list_display = ("chat_name", "user_id", "username", "first_name", "timestamp", "short_message", "action")  # Використовуємо chat_name замість chats_names
-    search_fields = ("username", "first_name", "message_text")
-    list_filter = ("chats_names", "timestamp")  # Це залишимо для фільтрації по chats_names
-    ordering = ("-timestamp",)
+            BannedUser.objects.create(
+                chats_names=user.chats_names,
+                user_id=user.user_id,
+                first_name=user.first_name,
+                banned_at=user.banned_at,
+                status="Заблокований"
+            )
 
-    def short_message(self, obj):
-        return obj.message_text[:50] + "..." if len(obj.message_text) > 50 else obj.message_text
+            ActionLog.objects.create(
+                chats_names=user.chats_names,
+                user_id=user.user_id,
+                action_type="user_banned",
+                info=f"Заблоковано користувача {user.first_name} ({user.user_id})",
+            )
 
-    short_message.short_description = "Повідомлення"
+            # Викликаємо асинхронну функцію для бана в Telegram
+            ban_user_telegram(user.chats_names.chat_id, user.user_id)
 
-    def chat_name(self, obj):  # Додаємо метод для повернення назви чату
-        return obj.chats_names.name if obj.chats_names else "Без чату"
-    chat_name.short_description = "Назва чату"  # Опис для стовпця
+    ban_user.short_description = "Заблокувати користувачів"
+
+    # Функція для розбана користувача
+    def unban_user(self, request, queryset):
+        for user in queryset:
+            user.is_banned = False
+            user.banned_at = None
+            user.save()
+
+            BannedUser.objects.filter(user_id=user.user_id).delete()
+
+            ActionLog.objects.create(
+                chats_names=user.chats_names,
+                user_id=user.user_id,
+                action_type="user_unbanned",
+                info=f"Розблоковано користувача {user.first_name} ({user.user_id})",
+            )
+
+            # Викликаємо асинхронну функцію для розбана в Telegram
+            unban_user_telegram(user.chats_names.chat_id, user.user_id)
+
+    unban_user.short_description = "Розблокувати користувачів"
+
+    # Функція для мута користувача
+    def mute_user(self, request, queryset):
+        for user in queryset:
+            mute_end_time = now() + timedelta(hours=1)  # Мут на 1 годину
+            user.mute_until = mute_end_time
+            user.is_muted = True
+            user.save()
+
+            MutedUser.objects.create(
+                chats_names=user.chats_names,
+                user_id=user.user_id,
+                first_name=user.first_name,
+                end_time=user.mute_until,
+                status="Замучений"
+            )
+
+            ActionLog.objects.create(
+                chats_names=user.chats_names,
+                user_id=user.user_id,
+                action_type="user_muted",
+                info=f"Замучено користувача {user.first_name} ({user.user_id}) до {user.mute_until}",
+            )
+
+            # Викликаємо асинхронну функцію для мута в Telegram
+            mute_user_telegram(user.chats_names.chat_id, user.user_id, mute_end_time)
+
+    mute_user.short_description = "Замутити користувачів"
+
+    # Функція для розмута користувача
+    def unmute_user(self, request, queryset):
+        for user in queryset:
+            user.is_muted = False
+            user.mute_until = None
+            user.save()
+
+            MutedUser.objects.filter(user_id=user.user_id).delete()
+
+            ActionLog.objects.create(
+                chats_names=user.chats_names,
+                user_id=user.user_id,
+                action_type="user_unmuted",
+                info=f"Розмучено користувача {user.first_name} ({user.user_id})",
+            )
+
+            # Викликаємо асинхронну функцію для розмута в Telegram
+            unmute_user_telegram(user.chats_names.chat_id, user.user_id)
+
+    unmute_user.short_description = "Розмутити користувачів"
+
+
+admin.site.register(User, UserAdmin)

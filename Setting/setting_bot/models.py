@@ -56,8 +56,8 @@ class BannedUser(models.Model):
     chats_names = models.ForeignKey(Chats, on_delete=models.CASCADE)
     user_id = models.BigIntegerField(unique=True)
     first_name = models.CharField(max_length=255, blank=True, null=True)
-    banned_at = models.DateTimeField(auto_now_add=True)
-
+    banned_at = models.DateTimeField(null=True, blank=True)  # Зроблено необов'язковим
+    status = models.CharField(max_length=50, null=True, blank=True)  # Нове необов'язкове поле для статусу
 
     class Meta:
         verbose_name = "Забанений користувач"
@@ -72,11 +72,13 @@ class BannedUser(models.Model):
 
     chat_name.short_description = "Назва чату"
 
+
 class MutedUser(models.Model):
     chats_names = models.ForeignKey(Chats, on_delete=models.CASCADE)
     user_id = models.BigIntegerField(unique=True)
     first_name = models.CharField(max_length=255, blank=True, null=True)
-    end_time = models.DateTimeField()
+    end_time = models.DateTimeField(null=True, blank=True)  # Зроблено необов'язковим
+    status = models.CharField(max_length=50, null=True, blank=True)  # Нове необов'язкове поле для статусу
 
     class Meta:
         verbose_name = "Замучений користувач"
@@ -86,11 +88,13 @@ class MutedUser(models.Model):
     def __str__(self):
         return f"{self.first_name} ({self.user_id}) - Muted until {self.end_time}"
 
-
     def chat_name(self):  # Додаємо метод
         return self.chats_names.name if self.chats_names else "Без чату"
 
     chat_name.short_description = "Назва чату"
+
+
+
 
 
 
@@ -161,9 +165,12 @@ class ActionLog(models.Model):
 
 
 
+from django.utils.timezone import now
+
 class User(models.Model):
     chats_names = models.ForeignKey(Chats, on_delete=models.CASCADE)
     user_id = models.BigIntegerField(unique=True)
+    first_name = models.CharField(max_length=255, blank=True, null=True)
     is_banned = models.BooleanField(default=False)
     is_muted = models.BooleanField(default=False)
     mute_until = models.DateTimeField(null=True, blank=True)
@@ -176,10 +183,22 @@ class User(models.Model):
     def __str__(self):
         return f"User: {self.user_id} in Chat: {self.chats_names.name}"
 
-
-    def chat_name(self):  # Додаємо метод
+    def chat_name(self):
         return self.chats_names.name if self.chats_names else "Без чату"
 
     chat_name.short_description = "Назва чату"
+
+    def ban(self):
+        """Блокує користувача"""
+        self.is_banned = True
+        self.banned_at = now()
+        self.save()
+
+    def unban(self):
+        """Розблокує користувача"""
+        self.is_banned = False
+        self.banned_at = None
+        self.save()
+
 
 
