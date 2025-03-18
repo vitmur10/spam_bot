@@ -3,7 +3,7 @@ import csv
 import json
 import os
 from datetime import timedelta
-
+from django.utils.html import format_html
 from django.contrib import admin
 from django.http import HttpResponse
 from .views import *
@@ -56,7 +56,6 @@ class UserMessageCountAdmin(admin.ModelAdmin):
     chat_name.short_description = "Назва чату"  # Опис для стовпця
 
 
-from django.utils.html import format_html
 
 @admin.register(ActionLog)
 class ActionLogAdmin(admin.ModelAdmin):
@@ -231,3 +230,19 @@ class UserAdmin(admin.ModelAdmin):
 
 
 admin.site.register(User, UserAdmin)
+
+@admin.register(Message)
+class MessageAdmin(admin.ModelAdmin):
+    list_display = ("chat_name", "user_id", "username", "first_name", "timestamp", "short_message", "action")  # Використовуємо chat_name замість chats_names
+    search_fields = ("username", "first_name", "message_text")
+    list_filter = ("chats_names", "timestamp")  # Це залишимо для фільтрації по chats_names
+    ordering = ("-timestamp",)
+
+    def short_message(self, obj):
+        return obj.message_text[:50] + "..." if len(obj.message_text) > 50 else obj.message_text
+
+    short_message.short_description = "Повідомлення"
+
+    def chat_name(self, obj):  # Додаємо метод для повернення назви чату
+        return obj.chats_names.name if obj.chats_names else "Без чату"
+    chat_name.short_description = "Назва чату"  # Опис для стовпця

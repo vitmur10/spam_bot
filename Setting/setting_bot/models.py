@@ -53,6 +53,7 @@ class ModerationSettings(models.Model):
 
 
 class BannedUser(models.Model):
+    unique_together = ('user_id', 'chats_names')
     chats_names = models.ForeignKey(Chats, on_delete=models.CASCADE)
     user_id = models.BigIntegerField(unique=True)
     first_name = models.CharField(max_length=255, blank=True, null=True)
@@ -81,6 +82,7 @@ class MutedUser(models.Model):
     status = models.CharField(max_length=50, null=True, blank=True)  # Нове необов'язкове поле для статусу
 
     class Meta:
+        unique_together = ('user_id', 'chats_names')
         verbose_name = "Замучений користувач"
         verbose_name_plural = "Замучені користувачі"
         ordering = ["-end_time"]
@@ -177,6 +179,7 @@ class User(models.Model):
     banned_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        unique_together = ('user_id', 'chats_names')
         verbose_name = "Користувач"
         verbose_name_plural = "Користувачі"
 

@@ -1,14 +1,12 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
-
-import pytz
-from aiogram import Router, F
+from datetime import timedelta
+from aiogram import Router
 from aiogram import types
-from aiogram.types import Message, ChatPermissions, ContentType, ChatMemberUpdated
-from aiogram.filters import Filter, Command
-from django.db.models import Exists, OuterRef
-from const import *
+from aiogram.filters import Filter
+from aiogram.types import Message, ChatPermissions, ChatMemberUpdated, InlineKeyboardButton
 from django.utils.timezone import now
+
+from const import *
 
 router = Router()
 ChatPermissions(can_send_messages=False)
@@ -25,9 +23,6 @@ async def add_user(chat_id, user_id,first_name):
         first_name=first_name,
     )
     return user, created
-
-
-
 
 
 async def log_action(chat_id, user_id, username, action_type, info, message_id=None):
@@ -152,92 +147,6 @@ async def get_chat_id(message: types.Message):
     return
 
 
-"""@router.message(IsChatAllowed(), F.text.startswith('/ban'))
-async def ban_user(message: Message, bot: Bot):
-    # Check if the user is an admin
-    if not await is_admin(message.chat.id, message.from_user.id):
-        #await message.answer("Тільки адміністратори можуть використовувати цю команду.")
-        return
-
-    # Ensure the command is a reply to a message
-    if not message.reply_to_message:
-        #await message.answer("Ця команда має бути відповіддю на повідомлення!")
-        return
-
-    user_id = message.reply_to_message.from_user.id
-    user_first_name = message.reply_to_message.from_user.first_name
-
-    # Ban the user
-    await bot.ban_chat_member(message.chat.id, user_id)
-
-    # Add user to the banned users database
-    BannedUser.objects.create(user_id=user_id, first_name=user_first_name)
-
-    # Send confirmation message
-    #await message.answer(f'Покинув нас: {user_first_name}')"""
-
-
-
-"""@router.message(IsChatAllowed(),F.text.startswith('/mute'))
-async def mute_user(message: Message, bot: Bot):
-
-    # Check if the user is an admin
-    if not await is_admin(message.chat.id, message.from_user.id):
-        #await message.answer("Тільки адміністратори можуть використовувати цю команду.")
-        return
-
-    # Ensure the command is a reply to a message
-    if not message.reply_to_message:
-        #await message.answer("Ця команда має бути відповіддю на повідомлення!")
-        return
-
-    try:
-        muteint = int(message.text.split()[1])  # Мute duration
-        mutetype = message.text.split()[2]  # Time unit (hour, minute, day)
-        comment = " ".join(message.text.split()[3:])  # Reason for mute
-    except IndexError:
-        #await message.answer('Бракує аргументів! Приклад: `/mute 1 хвилина причина`')
-        return
-
-    # Calculate mute end time
-    if mutetype in ["г", "годин", "година"]:
-        dt = datetime.now() + timedelta(hours=muteint)
-    elif mutetype in ["х", "хвилин", "хвилини"]:
-        dt = datetime.now() + timedelta(minutes=muteint)
-    elif mutetype in ["д", "днів", "день"]:
-        dt = datetime.now() + timedelta(days=muteint)
-    else:
-        #await message.answer("Невідомий тип часу. Використовуйте 'г', 'х' або 'д'.")
-        return
-
-    # Mute the user
-    timestamp = dt.timestamp()
-    await bot.restrict_chat_member(
-        message.chat.id,
-        message.reply_to_message.from_user.id,
-        types.ChatPermissions(can_send_messages=False),
-        until_date=timestamp
-    )
-
-    # Add muted user to the database
-    MutedUser.objects.create(
-        user_id=message.reply_to_message.from_user.id,
-        first_name=message.reply_to_message.from_user.first_name,
-        end_time=dt
-    )"""
-
-
-"""@router.message(IsChatAllowed(),F.text.startswith('/kik'))
-async def unban_user(message: Message, bot: Bot):
-    # Check if the user is an admin
-    if not await is_admin(message.chat.id, message.from_user.id):
-        #await message.answer("Тільки адміністратори можуть використовувати цю команду.")
-        return
-
-    # Ensure the command is a reply to a message
-    if not message.reply_to_message:
-        #await message.answer("Ця команда має бути відповіддю на повідомлення!")
-        return"""
 
 
 @router.edited_message(IsChatAllowed())
@@ -360,6 +269,15 @@ async def filter_spam(message: Message, bot: Bot):
         )
         return
 
+    if message.reply_markup:
+        # Якщо в повідомленні є кнопки, видаляти його
+        await bot.delete_message(chat_id, message.message_id)
+        await save_message(message.message_id, chat_id, user_id, username, first_name, text,
+                           action="message_with_button_deleted")
+        await log_action(chat_id, user_id, username, "spam_deleted", "Deleted message with button",
+                         message.message_id)
+        return
+
     if URL_PATTERN.search(message.text) and DELETE_LINKS:
         await bot.delete_message(chat_id, message.message_id)
         await save_message(message.message_id,chat_id, user_id, username, first_name, text, action="deleted_link")
@@ -383,44 +301,51 @@ async def filter_spam(message: Message, bot: Bot):
         await log_action(chat_id, user_id, username, "spam_deleted", "Excessive capitalization", message.message_id)
         return
 
-    if message.audio and DELETE_AUDIO:
+    elif message.audio and DELETE_AUDIO:
         await bot.delete_message(chat_id, message.message_id)
         await log_action(chat_id, user_id, username, "spam_deleted", "Audio message deleted", message.message_id)
         return
 
-    if message.video and DELETE_VIDEO:
+    elif message.video and DELETE_VIDEO:
         await bot.delete_message(chat_id, message.message_id)
         await log_action(chat_id, user_id, username, "spam_deleted", "Video message deleted", message.message_id)
         return
 
-    if message.video_note and DELETE_VIDEO_NOTES:
+    elif message.video_note and DELETE_VIDEO_NOTES:
         await bot.delete_message(chat_id, message.message_id)
         await log_action(chat_id, user_id, username, "spam_deleted", "Video note deleted", message.message_id)
         return
 
-    if message.sticker and DELETE_STICKERS:
+    elif message.sticker and DELETE_STICKERS:
         await bot.delete_message(chat_id, message.message_id)
         await log_action(chat_id, user_id, username, "spam_deleted", "Sticker deleted", message.message_id)
         return
 
-    if DELETE_CHINESE and any("\u4e00" <= char <= "\u9fff" for char in message.text):
+    elif DELETE_CHINESE and any("\u4e00" <= char <= "\u9fff" for char in message.text):
         await bot.delete_message(chat_id, message.message_id)
         await log_action(chat_id, user_id, username, "spam_deleted", "Chinese characters deleted", message.message_id)
         return
 
-    if DELETE_RTL and any("\u0590" <= char <= "\u08ff" for char in message.text):
+    elif DELETE_RTL and any("\u0590" <= char <= "\u08ff" for char in message.text):
         await bot.delete_message(chat_id, message.message_id)
         await log_action(chat_id, user_id, username, "spam_deleted", "RTL characters deleted", message.message_id)
         return
 
-    if DELETE_EMAILS and re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", message.text):
+    elif DELETE_EMAILS and re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", message.text):
         await bot.delete_message(chat_id, message.message_id)
         await log_action(chat_id, user_id, username, "spam_deleted", "Email address deleted", message.message_id)
         return
 
-    if DELETE_REFERRAL_LINKS and re.search(r"referral_link_pattern", message.text):
+    elif DELETE_REFERRAL_LINKS and re.search(r"referral_link_pattern", message.text):
         await bot.delete_message(chat_id, message.message_id)
         await log_action(chat_id, user_id, username, "spam_deleted", "Referral link deleted", message.message_id)
+        return
+
+    elif message.forward_from:
+        await bot.delete_message(chat_id, message.message_id)
+        await save_message(message.message_id, chat_id, user_id, username, first_name, text,
+                           action="forwarded_message_deleted")
+        await log_action(chat_id, user_id, username, "spam_deleted", "Deleted forwarded message", message.message_id)
         return
 
     await save_message(message.message_id,chat_id, user_id, username, first_name, text)
@@ -480,10 +405,3 @@ async def track_admin_actions(update: ChatMemberUpdated):
             info=info,
             message_id=None  # Оскільки в цьому випадку message_id не існує
         )
-
-
-
-
-
-
-
