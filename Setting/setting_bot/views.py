@@ -46,11 +46,7 @@ def ban_user_telegram(chat_id, user_id):
     # Відправка запиту до Telegram API
     response = requests.post(url, data=data)
 
-    # Перевірка відповіді
-    if response.status_code == 200:
-        print(f"Користувача {user_id} заблоковано")
-    else:
-        print(f"Помилка: {response.text}")
+
 
 
 def unban_user_telegram(chat_id, user_id):
@@ -65,11 +61,7 @@ def unban_user_telegram(chat_id, user_id):
     # Відправка запиту до Telegram API
     response = requests.post(url, data=data)
 
-    # Перевірка відповіді
-    if response.status_code == 200:
-        print(f"Користувача {user_id} розблоковано")
-    else:
-        print(f"Помилка: {response.text}")
+
 
 
 
@@ -91,8 +83,3 @@ def unmute_user_telegram(chat_id, user_id):
     # Відправка запиту до Telegram API
     response = requests.post(url, json=data)
 
-    # Перевірка відповіді
-    if response.status_code == 200:
-        print(f"Користувача {user_id} розмучено")
-    else:
-        print(f"Помилка: {response.text}")

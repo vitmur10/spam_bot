@@ -14,18 +14,18 @@ from django import forms
 
 @admin.register(ModerationSettings)
 class ModerationSettingsAdmin(admin.ModelAdmin):
-    # Додаємо поле `id` у `list_display`
-    list_display = ("id", "user", "mute_time", "max_mentions", "max_emojis", "min_caps_length", "mute_words", "kick_words", "ban_words", "emoji_list")
+    list_display = ("id", "user", "mute_time", "max_mentions", "max_emojis", "min_caps_length",
+                     "mute_words", "kick_words", "ban_words", "emoji_list")
 
-    # Додаємо поле `id` у `fields_admin`, оскільки воно є в базі даних, але за замовчуванням приховане
     fields_admin = ['id'] + [field.name for field in ModerationSettings._meta.fields if field.name != 'id']
+    moderator_fields = ['mute_words', 'kick_words', 'ban_words']
 
-    readonly_fields = ('id',)  # `id` за замовчуванням readonly
+    readonly_fields = ('id',)
 
     def get_fields(self, request, obj=None):
         if request.user.is_superuser:
             return self.fields_admin
-        return []
+        return self.moderator_fields
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -37,6 +37,7 @@ class ModerationSettingsAdmin(admin.ModelAdmin):
         if not obj.pk and not request.user.is_superuser:
             obj.user = request.user
         obj.save()
+
 
 
 

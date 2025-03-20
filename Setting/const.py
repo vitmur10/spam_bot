@@ -53,32 +53,56 @@ async def save_message(message_id,chat_id, user_id, username, first_name, messag
 
 @sync_to_async
 def get_moderation_settings():
-    settings = ModerationSettings.objects.all()  # Отримуємо всі записи
+    settings = ModerationSettings.objects.all()
 
-    if settings.exists():  # Якщо є записи
-        first_setting = settings.first()  # Беремо перший запис
-        return {
-            "MODERATOR": first_setting.user.username,
-            "BAD_WORDS_MUTE": first_setting.mute_words.split(", "),  # Перетворюємо в список
-            "BAD_WORDS_KICK": first_setting.kick_words.split(", "),
-            "BAD_WORDS_BAN": first_setting.ban_words.split(", "),
-            "MAX_MENTIONS": first_setting.max_mentions,
-            "MAX_EMOJIS": first_setting.max_emojis,
-            "MIN_CAPS_LENGTH": first_setting.min_caps_length,
-            "MUTE_TIME": first_setting.mute_time,
-            "DELETE_LINKS": first_setting.delete_links,
-            "DELETE_AUDIO": first_setting.delete_audio,
-            "DELETE_VIDEO": first_setting.delete_video,
-            "DELETE_VIDEO_NOTES": first_setting.delete_video_notes,
-            "DELETE_STICKERS": first_setting.delete_stickers,
-            "DELETE_EMOJIS": first_setting.delete_emojis,
-            "DELETE_CHINESE": first_setting.delete_chinese,
-            "DELETE_RTL": first_setting.delete_rtl,
-            "DELETE_EMAILS": first_setting.delete_emails,
-            "DELETE_REFERRAL_LINKS": first_setting.delete_referral_links,
-            "EMOJI_LIST": first_setting.emoji_list.split(", ")
+    if settings.exists():
+        # Створюємо єдиний словник для всіх налаштувань
+        combined_settings = {
+            "BAD_WORDS_MUTE": [],
+            "BAD_WORDS_KICK": [],
+            "BAD_WORDS_BAN": [],
+            "MAX_MENTIONS": [],
+            "MAX_EMOJIS": [],
+            "MIN_CAPS_LENGTH": [],
+            "MUTE_TIME": [],
+            "DELETE_LINKS": [],
+            "DELETE_AUDIO": [],
+            "DELETE_VIDEO": [],
+            "DELETE_VIDEO_NOTES": [],
+            "DELETE_STICKERS": [],
+            "DELETE_EMOJIS": [],
+            "DELETE_CHINESE": [],
+            "DELETE_RTL": [],
+            "DELETE_EMAILS": [],
+            "DELETE_REFERRAL_LINKS": [],
+            "EMOJI_LIST": []
         }
-    return {}  # Якщо немає записів, повертаємо порожній словник
+
+        # Перебираємо всі налаштування і додаємо їх до відповідних списків
+        for setting in settings:
+            combined_settings["BAD_WORDS_MUTE"].append(setting.mute_words.split(", "))
+            combined_settings["BAD_WORDS_KICK"].append(setting.kick_words.split(", "))
+            combined_settings["BAD_WORDS_BAN"].append(setting.ban_words.split(", "))
+            combined_settings["MAX_MENTIONS"].append(setting.max_mentions)
+            combined_settings["MAX_EMOJIS"].append(setting.max_emojis)
+            combined_settings["MIN_CAPS_LENGTH"].append(setting.min_caps_length)
+            combined_settings["MUTE_TIME"].append(setting.mute_time)
+            combined_settings["DELETE_LINKS"].append(setting.delete_links)
+            combined_settings["DELETE_AUDIO"].append(setting.delete_audio)
+            combined_settings["DELETE_VIDEO"].append(setting.delete_video)
+            combined_settings["DELETE_VIDEO_NOTES"].append(setting.delete_video_notes)
+            combined_settings["DELETE_STICKERS"].append(setting.delete_stickers)
+            combined_settings["DELETE_EMOJIS"].append(setting.delete_emojis)
+            combined_settings["DELETE_CHINESE"].append(setting.delete_chinese)
+            combined_settings["DELETE_RTL"].append(setting.delete_rtl)
+            combined_settings["DELETE_EMAILS"].append(setting.delete_emails)
+            combined_settings["DELETE_REFERRAL_LINKS"].append(setting.delete_referral_links)
+            combined_settings["EMOJI_LIST"].append(setting.emoji_list.split(", "))
+
+        return combined_settings  # Повертаємо один великий словник з усіма налаштуваннями
+
+    return {}
+
 
 # Регулярний вираз для пошуку посилань
 URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")

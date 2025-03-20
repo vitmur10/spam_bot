@@ -183,25 +183,44 @@ async def filter_spam(message: Message, bot: Bot):
         await save_message(message.message_id, chat_id, user_id, username, first_name, text)
         return
 
+    def flatten_and_join(data):
+        # Flatten the list and join items as strings
+        result = []
+        for item in data:
+            if isinstance(item, list):
+                # If the item is a list, flatten it first
+                result.extend(flatten_and_join(item))  # Recursively flatten the sublist
+            else:
+                result.append(str(item))  # Ensure it's a string
+        return result
     settings = await get_moderation_settings()
-    BAD_WORDS_MUTE = settings["BAD_WORDS_MUTE"]
-    BAD_WORDS_KICK = settings["BAD_WORDS_KICK"]
-    BAD_WORDS_BAN = settings["BAD_WORDS_BAN"]
-    MAX_MENTIONS = settings["MAX_MENTIONS"]
-    MAX_EMOJIS = settings["MAX_EMOJIS"]
-    MIN_CAPS_LENGTH = settings["MIN_CAPS_LENGTH"]
-    MUTE_TIME = settings["MUTE_TIME"]
-    DELETE_LINKS = settings["DELETE_LINKS"]
-    DELETE_AUDIO = settings["DELETE_AUDIO"]
-    DELETE_VIDEO = settings["DELETE_VIDEO"]
-    DELETE_VIDEO_NOTES = settings["DELETE_VIDEO_NOTES"]
-    DELETE_STICKERS = settings["DELETE_STICKERS"]
-    DELETE_EMOJIS = settings["DELETE_EMOJIS"]
-    DELETE_CHINESE = settings["DELETE_CHINESE"]
-    DELETE_RTL = settings["DELETE_RTL"]
-    DELETE_EMAILS = settings["DELETE_EMAILS"]
-    DELETE_REFERRAL_LINKS = settings["DELETE_REFERRAL_LINKS"]
-    EMOJI_LIST = settings["EMOJI_LIST"]
+    if settings:
+        BAD_WORDS_MUTE = settings.get("BAD_WORDS_MUTE", [])
+        BAD_WORDS_MUTE = ' '.join(flatten_and_join(BAD_WORDS_MUTE))
+
+        BAD_WORDS_KICK = settings.get("BAD_WORDS_KICK", [])
+        BAD_WORDS_KICK = ' '.join(flatten_and_join(BAD_WORDS_KICK))
+
+        BAD_WORDS_BAN = settings.get("BAD_WORDS_BAN", [])
+        BAD_WORDS_BAN = ' '.join(flatten_and_join(BAD_WORDS_BAN))
+
+        MAX_MENTIONS = settings.get("MAX_MENTIONS", [0])[0]
+        MAX_EMOJIS = settings.get("MAX_EMOJIS", [0])[0]
+        MIN_CAPS_LENGTH = settings.get("MIN_CAPS_LENGTH", [0])[0]
+        MUTE_TIME = settings.get("MUTE_TIME", [0])[0]
+        DELETE_LINKS = settings.get("DELETE_LINKS", [False])[0]
+        DELETE_AUDIO = settings.get("DELETE_AUDIO", [False])[0]
+        DELETE_VIDEO = settings.get("DELETE_VIDEO", [False])[0]
+        DELETE_VIDEO_NOTES = settings.get("DELETE_VIDEO_NOTES", [False])[0]
+        DELETE_STICKERS = settings.get("DELETE_STICKERS", [False])[0]
+        DELETE_EMOJIS = settings.get("DELETE_EMOJIS", [False])[0]
+        DELETE_CHINESE = settings.get("DELETE_CHINESE", [False])[0]
+        DELETE_RTL = settings.get("DELETE_RTL", [False])[0]
+        DELETE_EMAILS = settings.get("DELETE_EMAILS", [False])[0]
+        DELETE_REFERRAL_LINKS = settings.get("DELETE_REFERRAL_LINKS", [False])[0]
+
+        EMOJI_LIST = settings.get("EMOJI_LIST", [])
+        EMOJI_LIST = ' '.join(flatten_and_join(EMOJI_LIST))
 
     text = re.sub(r"[^\w\s]", "", message.text.lower()) if message.text else ""
     chat = await sync_to_async(Chats.objects.get)(chat_id=chat_id)
