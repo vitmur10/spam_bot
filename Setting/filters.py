@@ -15,14 +15,21 @@ banned_users = []
 muted_users = []
 
 
-async def add_user(chat_id, user_id,first_name):
+async def add_user(chat_id, user_id, first_name):
     chat = await sync_to_async(Chats.objects.get)(chat_id=chat_id)
     user, created = await sync_to_async(User.objects.get_or_create)(
         user_id=user_id,
         chats_names=chat,
-        first_name=first_name,
+        defaults={'first_name': first_name, 'status': 'Активний'},
     )
+
+    # Якщо користувача не створено і у нього немає first_name, оновлюємо його
+    if not created and (not user.first_name or user.first_name != first_name):
+        user.first_name = first_name
+        await user.save_async()
+
     return user, created
+
 
 
 async def log_action(chat_id, user_id, username, action_type, info, message_id=None):
