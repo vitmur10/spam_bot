@@ -2,6 +2,7 @@ from const import *  # Ти можеш додати заборонені фра�
 import re
 from django.utils.timezone import now
 from datetime import datetime
+
 # Список заборонених фраз
 forbidden_phrases = [
     "Ежедневный доход", "достойный заработок", "пассивного дохода", "набор в команду", "Все условия в ЛС пиши +",
@@ -27,7 +28,6 @@ forbidden_phrases = [
     "Вoзмoжнoсть зaraбaтывaть", "пишитe нa ocнoвнoй aккaунт", "Тpeбуются пapтнepы"
 ]
 
-
 # Функція для перевірки на заборонені слова
 def contains_forbidden_word(message_text):
     message_text = message_text.lower()
@@ -37,24 +37,28 @@ def contains_forbidden_word(message_text):
 def process_messages():
     messages = Message.objects.all()
     for message in messages:
-        user, created = User.objects.get_or_create(user_id=message.user_id, chats_names=message.chats_names)
+        try:
+            user, created = User.objects.get_or_create(user_id=message.user_id, chats_names=message.chats_names)
 
-        if contains_forbidden_word(message.message_text):
-            message.action = 'deleted'
-            user.message_count = 0
-            user.save()
-        else:
-            message.action = None
-            user.message_count += 1
-            user.last_message_date = now()
-            user.first_name = message.first_name or user.first_name or 'No Name'
-            user.save()
+            if contains_forbidden_word(message.message_text):
+                message.action = 'deleted'
+                user.message_count = 0
+                user.save()
+            else:
+                message.action = None
+                user.message_count += 1
+                user.last_message_date = now()
+                user.first_name = message.first_name or user.first_name or 'No Name'
+                user.save()
 
-        message.save()
-        print(f"Message {message.id} processed. Action: {message.action}")
+            message.save()
+            print(f"Message {message.id} processed. Action: {message.action}")
+
+        except Exception as e:
+            # Логування помилки та пропуск повідомлення
+            print(f"Error processing message {message.id}: {e}")
+            continue
 
 
 if __name__ == "__main__":
     process_messages()
-
-
