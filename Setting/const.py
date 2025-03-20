@@ -20,7 +20,7 @@ bot = Bot(token=API_TOKEN)  # Використовуємо default для нал
 dp = Dispatcher(storage=MemoryStorage())
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "Setting.settings")
 application = get_wsgi_application()
-from setting_bot.models import ModerationSettings, BannedUser, MutedUser, Chats, UserMessageCount, ActionLog, User, Message
+from setting_bot.models import ModerationSettings,Chats, ActionLog, User, Message
 from django.apps import apps
 
 WHITE_LIST_THRESHOLD = 15  # Мінімальна кількість повідомлень
@@ -83,30 +83,45 @@ def get_moderation_settings():
 # Регулярний вираз для пошуку посилань
 URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")
 
+
 @sync_to_async
 def get_whitelisted_users(chat_id):
+    """Отримуємо список користувачів, які досягли порогу повідомлень для білого списку"""
     chat = Chats.objects.get(chat_id=chat_id)
-    return set(
-        UserMessageCount.objects
-        .filter(chats_names=chat,
- message_count__gte=WHITE_LIST_THRESHOLD)
-        .values_list("user_id", flat=True)
-    )
+
+    # Фільтруємо користувачів за лічильником повідомлень
+    whitelisted_users = User.objects.filter(
+        chats_names=chat,
+        message_count__gte=WHITE_LIST_THRESHOLD
+    ).values_list("user_id", flat=True)
+
+    return set(whitelisted_users)
+
+
 @sync_to_async
-def increment_message_count(user_id: int, chat_id: int, name):
+def increment_message_count(user_id: int, chat_id: int, name: str):
     """Збільшує лічильник повідомлень користувача у чаті."""
-    # Отримуємо або створюємо об'єкт
+    # Отримуємо або створюємо об'єкт чату
     chat = Chats.objects.get(chat_id=chat_id)
-    user_message_count, created = UserMessageCount.objects.get_or_create(
+
+    # Отримуємо або створюємо запис користувача у чаті
+    user, created = User.objects.get_or_create(
         user_id=user_id,
         chats_names=chat,
-        defaults={'message_count': 0, 'name': name, 'last_message_date': datetime.now(timezone.utc)}
+        defaults={
+            'first_name': name,
+            'message_count': 0,
+            'last_message_date': datetime.now(timezone.utc)
+        }
     )
-    # Збільшуємо лічильник на 1
-    user_message_count.message_count += 1
 
-    # Якщо значення змінилося, зберігаємо
-    if user_message_count.message_count != (created and 0 or user_message_count.message_count - 1):
-        user_message_count.save()
+    # Збільшуємо лічильник на 1
+    user.message_count += 1
+
+    # Оновлюємо час останнього повідомлення
+    user.last_message_date = datetime.now(timezone.utc)
+
+    # Зберігаємо зміни
+    user.save()
 
 

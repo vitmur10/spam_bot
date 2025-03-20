@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
-
+from django.utils.timezone import now
+from asgiref.sync import sync_to_async
 class Chats(models.Model):
     chat_id = models.IntegerField("ІД чату")
     name = models.CharField("Назва чату", max_length=70)
@@ -27,7 +28,7 @@ class ModerationSettings(models.Model):
     max_mentions = models.IntegerField("Макс. теги", default=5)
     max_emojis = models.IntegerField("Макс. емодзі", default=10)
     min_caps_length = models.IntegerField("Мін. капс", default=10)
-    mute_time = models.IntegerField("Час мута (секунди)", default=3600)
+    mute_time = models.IntegerField("Час мута (хвилини)", default=3600)
 
     delete_links = models.BooleanField("Видаляти повідомлення з посиланнями", default=True)
     delete_audio = models.BooleanField("Видаляти аудіозаписи", default=False)
@@ -50,76 +51,6 @@ class ModerationSettings(models.Model):
         verbose_name = "Налаштування модерації"
         verbose_name_plural = "Налаштування модерації"
 
-
-
-class BannedUser(models.Model):
-    unique_together = ('user_id', 'chats_names')
-    chats_names = models.ForeignKey(Chats, on_delete=models.CASCADE)
-    user_id = models.BigIntegerField(unique=True)
-    first_name = models.CharField(max_length=255, blank=True, null=True)
-    banned_at = models.DateTimeField(null=True, blank=True)  # Зроблено необов'язковим
-    status = models.CharField(max_length=50, null=True, blank=True)  # Нове необов'язкове поле для статусу
-
-    class Meta:
-        verbose_name = "Забанений користувач"
-        verbose_name_plural = "Забанені користувачі"
-        ordering = ["-banned_at"]
-
-    def __str__(self):
-        return f"{self.first_name} ({self.user_id})"
-
-    def chat_name(self):  # Додаємо метод
-        return self.chats_names.name if self.chats_names else "Без чату"
-
-    chat_name.short_description = "Назва чату"
-
-
-class MutedUser(models.Model):
-    chats_names = models.ForeignKey(Chats, on_delete=models.CASCADE)
-    user_id = models.BigIntegerField(unique=True)
-    first_name = models.CharField(max_length=255, blank=True, null=True)
-    end_time = models.DateTimeField(null=True, blank=True)  # Зроблено необов'язковим
-    status = models.CharField(max_length=50, null=True, blank=True)  # Нове необов'язкове поле для статусу
-
-    class Meta:
-        unique_together = ('user_id', 'chats_names')
-        verbose_name = "Замучений користувач"
-        verbose_name_plural = "Замучені користувачі"
-        ordering = ["-end_time"]
-
-    def __str__(self):
-        return f"{self.first_name} ({self.user_id}) - Muted until {self.end_time}"
-
-    def chat_name(self):  # Додаємо метод
-        return self.chats_names.name if self.chats_names else "Без чату"
-
-    chat_name.short_description = "Назва чату"
-
-
-
-
-
-
-class UserMessageCount(models.Model):
-    chats_names = models.ForeignKey(Chats, on_delete=models.CASCADE)
-    user_id = models.BigIntegerField()
-    message_count = models.IntegerField(default=0)
-    name = models.CharField(max_length=255, null=True, blank=True)
-    last_message_date = models.DateTimeField(null=True, blank=True)  # Дата останнього повідомлення, тепер не обов'язкова
-
-    class Meta:
-        unique_together = ('user_id', 'chats_names')
-        ordering = ['-last_message_date']
-        verbose_name = "Кількість повідомлень користувача"
-        verbose_name_plural = "Кількість повідомлень користувачів"
-
-    def __str__(self):
-        return f"User {self.user_id} ({self.name or 'No Name'}) in Chat {self.chats_names.name}: {self.message_count} messages, Last message: {self.last_message_date}"
-
-    def chat_name(self):  # Додаємо метод
-        return self.chats_names.name if self.chats_names else "Без чату"
-
-    chat_name.short_description = "Назва чату"
 
 class Message(models.Model):
     message_id = models.BigIntegerField(unique=True, null=True, blank=True)
@@ -167,21 +98,28 @@ class ActionLog(models.Model):
 
 
 
-from django.utils.timezone import now
 
 class User(models.Model):
-    chats_names = models.ForeignKey(Chats, on_delete=models.CASCADE)
+    chats_names = models.ForeignKey('Chats', on_delete=models.CASCADE)
     user_id = models.BigIntegerField(unique=True)
     first_name = models.CharField(max_length=255, blank=True, null=True)
+
     is_banned = models.BooleanField(default=False)
     is_muted = models.BooleanField(default=False)
+    mute_count = models.IntegerField(default=0)
     mute_until = models.DateTimeField(null=True, blank=True)
     banned_at = models.DateTimeField(null=True, blank=True)
+
+    status = models.CharField(max_length=50, null=True, blank=True)
+
+    message_count = models.IntegerField(default=0)
+    last_message_date = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = ('user_id', 'chats_names')
         verbose_name = "Користувач"
         verbose_name_plural = "Користувачі"
+        ordering = ['-last_message_date']
 
     def __str__(self):
         return f"User: {self.user_id} in Chat: {self.chats_names.name}"
@@ -191,17 +129,43 @@ class User(models.Model):
 
     chat_name.short_description = "Назва чату"
 
-    def ban(self):
-        """Блокує користувача"""
-        self.is_banned = True
-        self.banned_at = now()
+    @sync_to_async
+    def save_async(self):
         self.save()
 
-    def unban(self):
-        """Розблокує користувача"""
+    async def ban(self):
+        self.is_banned = True
+        self.banned_at = now()
+        await self.save_async()
+
+    async def unban(self):
         self.is_banned = False
         self.banned_at = None
-        self.save()
+        await self.save_async()
+
+    async def mute(self, mute_duration):
+        self.is_muted = True
+        self.mute_until = now() + mute_duration
+        self.mute_count += 1
+        await self.save_async()
+
+    async def unmute(self):
+        self.is_muted = False
+        self.mute_until = None
+        await self.save_async()
+
+    async def update_message_count(self):
+        self.message_count += 1
+        self.last_message_date = now()
+        await self.save_async()
+
+    def get_status(self):
+        if self.is_banned:
+            return "Заблоковано"
+        if self.is_muted and self.mute_until:
+            return f"Замучено до {self.mute_until.strftime('%Y-%m-%d %H:%M:%S')}"
+        return self.status or "Активний"
+
 
 
 

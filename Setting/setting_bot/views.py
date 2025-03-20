@@ -1,8 +1,8 @@
 import os
-
 import requests
 from aiogram import Bot
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
 
 load_dotenv()
 
@@ -11,6 +11,10 @@ bot = Bot(token=API_TOKEN)  # Використовуємо default для нал
 
 # Create your views here.
 def mute_user_telegram(chat_id, user_id, mute_end_time):
+    # Перевести timedelta в datetime
+    if isinstance(mute_end_time, timedelta):
+        mute_end_time = datetime.now() + mute_end_time
+
     url = f"https://api.telegram.org/bot{API_TOKEN}/restrictChatMember"
 
     # Параметри для обмеження доступу
@@ -29,11 +33,6 @@ def mute_user_telegram(chat_id, user_id, mute_end_time):
     # Відправляємо запит на Telegram API
     response = requests.post(url, json=data)
 
-    # Перевіряємо відповідь API
-    if response.status_code == 200:
-        print(f"Користувача {user_id} замучено до {mute_end_time}")
-    else:
-        print(f"Помилка: {response.text}")
 
 def ban_user_telegram(chat_id, user_id):
     url = f"https://api.telegram.org/bot{API_TOKEN}/banChatMember"

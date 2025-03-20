@@ -54,7 +54,10 @@ async def is_chat_allowed(chat_id: int) -> bool:
 async def get_muted_users():
     """Отримуємо список користувачів, яких потрібно розмутити"""
     now_plus_3 = datetime.now(timezone(timedelta(hours=3)))  # Київський часовий пояс (UTC+3)
-    muted_users = await sync_to_async(list)(MutedUser.objects.filter(end_time__lte=now_plus_3))
+
+    # Отримуємо користувачів, у яких статус "muted" і час мута завершився
+    muted_users = await sync_to_async(list)(User.objects.filter(is_muted=True, mute_until__lte=now_plus_3))
+
     return muted_users
 
 # Функція для отримання chats_names асинхронно
@@ -196,26 +199,25 @@ async def filter_spam(message: Message, bot: Bot):
     text = re.sub(r"[^\w\s]", "", message.text.lower()) if message.text else ""
     chat = await sync_to_async(Chats.objects.get)(chat_id=chat_id)
 
+    # Коли користувач отримує мут
     if any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_MUTE):
         await bot.delete_message(chat_id, message.message_id)
-        # Час закінчення мута
-        mute_end_time = datetime.now(timezone.utc) + timedelta(minutes=MUTE_TIME)
-        # Мутимо користувача з автоматичним розмучуванням
+        mute_end_time = datetime.now() + timedelta(minutes=MUTE_TIME)
+
+        # Отримуємо користувача з БД або створюємо нового, якщо його немає
+        user, created = await sync_to_async(User.objects.get_or_create)(user_id=user_id, chats_names=chat)
+
+        # Різниця між поточним часом та часом завершення муту
+        time_diff = mute_end_time - datetime.now()
+
+        # Мутимо користувача, передаємо тривалість муту (timedelta)
+        await user.mute(mute_duration=time_diff)
         await bot.restrict_chat_member(
             chat_id, user_id,
             permissions=ChatPermissions(can_send_messages=False),
             until_date=mute_end_time
         )
-        # Збереження мута в БД
-        await sync_to_async(MutedUser.objects.update_or_create)(
-            user_id=user_id, chats_names=chat,
-            defaults={
-                "first_name": username,
-                "end_time": mute_end_time,
-                "status": "muted"  # Додаємо статус "muted"
-            }
-        )
-        # Логування
+        # Зберігаємо лог дії
         matched_words = [word for word in BAD_WORDS_MUTE if re.sub(r"[^\w\s]", "", word).lower() in text]
         await save_message(
             message.message_id, chat_id, user_id, username, first_name, text,
@@ -228,15 +230,21 @@ async def filter_spam(message: Message, bot: Bot):
         )
         return
 
+    # Коли користувач отримує кік
     elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_KICK):
         await bot.delete_message(chat_id, message.message_id)
         await bot.ban_chat_member(chat_id, user_id)
         await bot.unban_chat_member(chat_id, user_id)
+
+        # Отримуємо користувача з БД або створюємо нового, якщо його немає
+        user, created = await sync_to_async(User.objects.get_or_create)(user_id=user_id, chats_names=chat)
+
+        # Зберігаємо лог дії
+        matched_words = [word for word in BAD_WORDS_KICK if re.sub(r"[^\w\s]", "", word).lower() in text]
         await save_message(
             message.message_id, chat_id, user_id, username, first_name, text,
             action="kicked by bot"
         )
-        matched_words = [word for word in BAD_WORDS_KICK if re.sub(r"[^\w\s]", "", word).lower() in text]
         await log_action(
             chat_id, user_id, username, "spam_deleted",
             f"Kicked by bot for bad words: {', '.join(matched_words)}",
@@ -244,31 +252,32 @@ async def filter_spam(message: Message, bot: Bot):
         )
         return
 
+    # Коли користувач отримує бан
     elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_BAN):
-
         await bot.delete_message(chat_id, message.message_id)
 
-        # Встановлюємо час для бану (наприклад, на 10 хвилин) з використанням timezone
+        # Встановлюємо час для бану (наприклад, на 10 хвилин)
+        ban_end_time = now() + timedelta(minutes=10)
 
-        ban_end_time = datetime.now(timezone.utc) + timedelta(minutes=10)
-
+        # Отримуємо користувача з БД або створюємо нового, якщо його немає
+        user, created = await sync_to_async(User.objects.get_or_create)(user_id=user_id, chats_names=chat)
         await bot.ban_chat_member(chat_id, user_id, until_date=ban_end_time)
 
+        # Банимо користувача
+        user.ban()
+
+        # Зберігаємо лог дії
+        matched_words = [word for word in BAD_WORDS_BAN if re.sub(r"[^\w\s]", "", word).lower() in text]
         await save_message(
             message.message_id, chat_id, user_id, username, first_name, text,
             action="banned by bot"
         )
-        # Додаємо користувача до бази даних як заблокованого
-
-        await sync_to_async(BannedUser.objects.get_or_create)(user_id=user_id, defaults={"first_name": username, "status": "ban"})
-        matched_words = [word for word in BAD_WORDS_BAN if re.sub(r"[^\w\s]", "", word).lower() in text]
         await log_action(
             chat_id, user_id, username, "spam_deleted",
             f"Banned by bot for bad words: {', '.join(matched_words)}",
             message.message_id
         )
         return
-
     if message.reply_markup:
         # Якщо в повідомленні є кнопки, видаляти його
         await bot.delete_message(chat_id, message.message_id)
@@ -354,54 +363,83 @@ async def filter_spam(message: Message, bot: Bot):
 
 @router.chat_member()
 async def track_admin_actions(update: ChatMemberUpdated):
-    initiator = update.from_user  # Хто здійснив дію
-    target = update.new_chat_member  # Кого забанили/зам'ютили/змінили роль
+    initiator = update.from_user  # Користувач, який здійснив дію (адміністратор)
+    target = update.new_chat_member  # Користувач, над яким була виконана дія (забанений/зам'ючений)
 
     action = None
     info = ""
-    chat = await sync_to_async(Chats.objects.get)(chat_id=update.chat.id)
+    chat = await sync_to_async(Chats.objects.get)(chat_id=update.chat.id)  # Отримуємо чат, де відбулась дія
 
-    # Визначаємо, що відбулося
+    # Визначаємо тип дії та збираємо інформацію про неї
     if target.status == "kicked":
         action = "ban"
         info = f"Забанив користувача @{target.user.username} ({target.user.id})"
 
-        # Додаємо користувача до бази даних, якщо його ще немає
-        await sync_to_async(BannedUser.objects.get_or_create)(
+        # Додаємо або оновлюємо запис в базі даних для забороненого користувача, використовуючи нову модель User
+        await sync_to_async(User.objects.update_or_create)(
             user_id=target.user.id,
             chats_names=chat,
-            defaults={"first_name": target.user.first_name}
+            defaults={
+                "first_name": target.user.first_name,
+                "is_banned": True,
+                "banned_at": now(),
+                "status": "ban"
+            }
         )
 
     elif target.status == "restricted":
         action = "mute"
         info = f"Зам'ютив користувача @{target.user.username} ({target.user.id})"
 
-        # Встановлюємо час завершення мута, якщо він визначений
-        mute_end_time = None  # Тут можете визначити час завершення, якщо він заданий
+        mute_end_time = None  # Тут ви можете додати час завершення, якщо він заданий
 
-        # Додаємо або оновлюємо запис в базі даних для мута
-        await sync_to_async(MutedUser.objects.update_or_create)(
+        # Додаємо або оновлюємо запис в базі даних для зам'юченого користувача
+        await sync_to_async(User.objects.update_or_create)(
             user_id=target.user.id,
             chats_names=chat,
-            defaults={"first_name": target.user.first_name, "end_time": mute_end_time}
+            defaults={
+                "first_name": target.user.first_name,
+                "is_muted": True,
+                "mute_until": mute_end_time
+            }
         )
 
     elif target.status == "member" and update.old_chat_member.status == "kicked":
         action = "unban"
         info = f"Розбанив користувача @{target.user.username} ({target.user.id})"
 
+        # Оновлюємо статус користувача в базі даних (розбанюємо)
+        await sync_to_async(User.objects.update_or_create)(
+            user_id=target.user.id,
+            chats_names=chat,
+            defaults={
+                "is_banned": False,
+                "banned_at": None,
+                "status": "active"
+            }
+        )
+
     elif target.status == "member" and update.old_chat_member.status == "restricted":
         action = "unmute"
         info = f"Розмутив користувача @{target.user.username} ({target.user.id})"
 
-    # Записуємо дію адміністратора
+        # Оновлюємо статус користувача в базі даних (розмутуємо)
+        await sync_to_async(User.objects.update_or_create)(
+            user_id=target.user.id,
+            chats_names=chat,
+            defaults={
+                "is_muted": False,
+                "mute_until": None
+            }
+        )
+
+    # Записуємо дію адміністратора в лог
     if action:
         await log_action(
             chat_id=update.chat.id,
-            user_id=initiator.id,
-            username=initiator.username,
-            action_type=action,
-            info=info,
-            message_id=None  # Оскільки в цьому випадку message_id не існує
+            user_id=initiator.id,  # Ідентифікатор адміністратора
+            username=initiator.username,  # Ім'я користувача адміністратора
+            action_type=action,  # Тип дії (ban, mute, unban, unmute)
+            info=info,  # Деталі про дію
+            message_id=None  # Оскільки в цьому випадку message_id не використовується
         )
