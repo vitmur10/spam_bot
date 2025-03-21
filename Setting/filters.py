@@ -15,12 +15,12 @@ banned_users = []
 muted_users = []
 
 
-async def add_user(chat_id, user_id, first_name):
+async def add_user(chat_id, user_id, first_name, username):
     chat = await sync_to_async(Chats.objects.get)(chat_id=chat_id)
     user, created = await sync_to_async(User.objects.get_or_create)(
         user_id=user_id,
         chats_names=chat,
-        defaults={'first_name': first_name, 'status': 'Активний'},
+        defaults={'username': username, 'first_name': first_name, 'status': 'Активний'},
     )
 
     # Якщо користувача не створено і у нього немає first_name, оновлюємо його
@@ -30,16 +30,17 @@ async def add_user(chat_id, user_id, first_name):
 
     return user, created
 
+def flatten_and_join(data):
+    return [word for sublist in data for word in (sublist if isinstance(sublist, list) else [sublist])]
 
-
-async def log_action(chat_id, user_id, username, action_type, info, message_id=None):
+async def log_action(chat_id, user_id, username, first_name, action_type, info, message=None):
     chat = await sync_to_async(Chats.objects.get)(chat_id=chat_id)
-    message = await sync_to_async(Message.objects.get)(message_id=message_id) if message_id else None
 
     await sync_to_async(ActionLog.objects.create)(
         chats_names=chat,
         user_id=user_id,
         username=username,
+        first_name = first_name,
         action_type=action_type,
         message=message,
         info=info
@@ -76,45 +77,48 @@ def get_chats_names(user):
 def get_chat_by_name(name):
     return Chats.objects.get(name=name)
 
+
 async def auto_unban_unmute(bot: Bot):
     while True:
-        muted_users = await get_muted_users()  # Отримуємо користувачів, яких потрібно розбанити
+        # Отримуємо користувачів, яких потрібно розбанити або розмутити
+        muted_users = await get_muted_users()  # Наприклад, User.objects.filter(is_muted=True)
 
         for user in muted_users:
-            if user.status == "muted" and user.end_time <= datetime.now(timezone.utc):  # Перевіряємо, чи статус "muted"
-                chats_names = await get_chats_names(user)  # Отримуємо чат
+            # Перевіряємо, чи користувач мутований і чи настав час для розмутування
+            if user.is_muted and user.mute_until <= datetime.now(timezone.utc):
+                chats_names = await get_chats_names(user)  # Отримуємо чат користувача
                 chat = await get_chat_by_name(chats_names.name)  # Отримуємо сам чат
 
                 # Логуємо дію в ActionLog
-                await sync_to_async(ActionLog.objects.create)(
+                await sync_to_async(ActionLog.objects.create)(  # Створюємо запис у базі
                     chats_names=chats_names,
                     user_id=user.user_id,
-                    username=user.first_name,
+                    username=user.username,
+                    first_name=user.first_name,
                     action_type='unmute_unban',
                     info=f"User {user.user_id} was unmuted and unbanned.",
                     created_at=datetime.now()
                 )
 
-                # Оновлюємо статус на "unmuted"
+                # Оновлюємо статус користувача на "unmuted"
                 await sync_to_async(user.update)(  # Оновлюємо запис у базі
                     {"status": "unmuted"},
-                    where={"user_id": user.user_id}  # Шукаємо за user_id
+                    where={"user_id": user.user_id}
                 )
+                await sync_to_async(user.unmute())  # Викликаємо метод для зняття мутації
 
-                # Оскільки ви коментуєте код для скасування обмежень, додайте лише оновлення статусу:
-                # await bot.restrict_chat_member(
-                #     chat_id=chat.chat_id,
-                #     user_id=user.user_id,
-                #     permissions=types.ChatPermissions(
-                #         can_send_messages=True,
-                #         can_send_media_messages=True,
-                #         can_send_other_messages=True,
-                #         can_add_web_page_previews=True
-                #     ),
-                # )
-
-                # Закоментовано: Не видаляємо користувача з бази
-                # await sync_to_async(user.delete)()
+                # Оновлення статусу користувача в чаті (розмутування, розбанення)
+                # Важливо використовувати методи ботів для обмежень, якщо потрібно
+                await bot.restrict_chat_member(
+                    chat_id=chat.chat_id,
+                    user_id=user.user_id,
+                    permissions=types.ChatPermissions(
+                        can_send_messages=True,
+                        can_send_media_messages=True,
+                        can_send_other_messages=True,
+                        can_add_web_page_previews=True
+                    ),
+                )
 
         # Чекаємо 60 секунд перед наступною перевіркою
         await asyncio.sleep(60)
@@ -176,33 +180,23 @@ async def filter_spam(message: Message, bot: Bot):
             await update_message(existing_message, new_text)
             return
 
-    await add_user(chat_id, user_id, first_name)
+    await add_user(chat_id, user_id,first_name, username)
     whitelisted_users = await get_whitelisted_users(chat_id)
 
     if user_id in whitelisted_users:
         await save_message(message.message_id, chat_id, user_id, username, first_name, text)
         return
 
-    def flatten_and_join(data):
-        # Flatten the list and join items as strings
-        result = []
-        for item in data:
-            if isinstance(item, list):
-                # If the item is a list, flatten it first
-                result.extend(flatten_and_join(item))  # Recursively flatten the sublist
-            else:
-                result.append(str(item))  # Ensure it's a string
-        return result
     settings = await get_moderation_settings()
     if settings:
         BAD_WORDS_MUTE = settings.get("BAD_WORDS_MUTE", [])
-        BAD_WORDS_MUTE = ' '.join(flatten_and_join(BAD_WORDS_MUTE))
+        BAD_WORDS_MUTE = flatten_and_join(BAD_WORDS_MUTE)
 
         BAD_WORDS_KICK = settings.get("BAD_WORDS_KICK", [])
-        BAD_WORDS_KICK = ' '.join(flatten_and_join(BAD_WORDS_KICK))
+        BAD_WORDS_KICK = flatten_and_join(BAD_WORDS_KICK)
 
         BAD_WORDS_BAN = settings.get("BAD_WORDS_BAN", [])
-        BAD_WORDS_BAN = ' '.join(flatten_and_join(BAD_WORDS_BAN))
+        BAD_WORDS_BAN = flatten_and_join(BAD_WORDS_BAN)
 
         MAX_MENTIONS = settings.get("MAX_MENTIONS", [0])[0]
         MAX_EMOJIS = settings.get("MAX_EMOJIS", [0])[0]
@@ -229,32 +223,26 @@ async def filter_spam(message: Message, bot: Bot):
     if any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_MUTE):
         await bot.delete_message(chat_id, message.message_id)
         mute_end_time = datetime.now() + timedelta(minutes=MUTE_TIME)
-
-        # Отримуємо користувача з БД або створюємо нового, якщо його немає
         user, created = await sync_to_async(User.objects.get_or_create)(user_id=user_id, chats_names=chat)
-
-        # Різниця між поточним часом та часом завершення муту
         time_diff = mute_end_time - datetime.now()
 
-        # Мутимо користувача, передаємо тривалість муту (timedelta)
         await user.mute(mute_duration=time_diff)
         await bot.restrict_chat_member(
             chat_id, user_id,
             permissions=ChatPermissions(can_send_messages=False),
             until_date=mute_end_time
         )
-        # Зберігаємо лог дії
-        matched_words = [word for word in BAD_WORDS_MUTE if re.sub(r"[^\w\s]", "", word).lower() in text]
-        await save_message(
-            message.message_id, chat_id, user_id, username, first_name, text,
-            action="muted by bot"
-        )
+
+        # Знаходимо перше слово, яке співпало
+
+        # Знаходимо перше співпадіння
+        matched_word = next((word for word in BAD_WORDS_MUTE if word.lower() in text), None)
+
         await log_action(
-            chat_id, user_id, username, "spam_deleted",
-            f"Muted by bot for bad words: {', '.join(matched_words)}",
-            message.message_id
+            chat_id, user_id, username, first_name, "spam_deleted",
+            f"Користувач був замучений ботом через вживання забороненого слова: '{matched_word} до {user.mute_until}'.",
+            text
         )
-        return
 
     # Коли користувач отримує кік
     elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_KICK):
@@ -262,125 +250,106 @@ async def filter_spam(message: Message, bot: Bot):
         await bot.ban_chat_member(chat_id, user_id)
         await bot.unban_chat_member(chat_id, user_id)
 
-        # Отримуємо користувача з БД або створюємо нового, якщо його немає
         user, created = await sync_to_async(User.objects.get_or_create)(user_id=user_id, chats_names=chat)
 
-        # Зберігаємо лог дії
-        matched_words = [word for word in BAD_WORDS_KICK if re.sub(r"[^\w\s]", "", word).lower() in text]
-        await save_message(
-            message.message_id, chat_id, user_id, username, first_name, text,
-            action="kicked by bot"
-        )
+        matched_word = next((word for word in BAD_WORDS_KICK if re.sub(r"[^\w\s]", "", word).lower() in text), None)
+
         await log_action(
-            chat_id, user_id, username, "spam_deleted",
-            f"Kicked by bot for bad words: {', '.join(matched_words)}",
-            message.message_id
+            chat_id, user_id, username,first_name, "spam_deleted",
+            f"Kicked by bot for bad word: '{matched_word}'",
+            text
         )
         return
 
     # Коли користувач отримує бан
     elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_BAN):
         await bot.delete_message(chat_id, message.message_id)
-
-        # Встановлюємо час для бану (наприклад, на 10 хвилин)
         ban_end_time = now() + timedelta(minutes=10)
 
-        # Отримуємо користувача з БД або створюємо нового, якщо його немає
         user, created = await sync_to_async(User.objects.get_or_create)(user_id=user_id, chats_names=chat)
         await bot.ban_chat_member(chat_id, user_id, until_date=ban_end_time)
 
-        # Банимо користувача
         user.ban()
 
-        # Зберігаємо лог дії
-        matched_words = [word for word in BAD_WORDS_BAN if re.sub(r"[^\w\s]", "", word).lower() in text]
-        await save_message(
-            message.message_id, chat_id, user_id, username, first_name, text,
-            action="banned by bot"
-        )
+        matched_word = next((word for word in BAD_WORDS_BAN if re.sub(r"[^\w\s]", "", word).lower() in text), None)
         await log_action(
-            chat_id, user_id, username, "spam_deleted",
-            f"Banned by bot for bad words: {', '.join(matched_words)}",
-            message.message_id
+            chat_id, user_id, username,first_name, "spam_deleted",
+            f"Banned by bot for bad word: '{matched_word}'",
+            text
         )
         return
     if message.reply_markup:
         # Якщо в повідомленні є кнопки, видаляти його
         await bot.delete_message(chat_id, message.message_id)
-        await save_message(message.message_id, chat_id, user_id, username, first_name, text,
-                           action="message_with_button_deleted")
-        await log_action(chat_id, user_id, username, "spam_deleted", "Deleted message with button",
-                         message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Deleted message with button",
+                         text)
         return
 
     if URL_PATTERN.search(message.text) and DELETE_LINKS:
         await bot.delete_message(chat_id, message.message_id)
-        await save_message(message.message_id,chat_id, user_id, username, first_name, text, action="deleted_link")
-        await log_action(chat_id, user_id, username, "spam_deleted", "Deleted link", message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Deleted link", text)
         return
 
     if text.count("@") >= MAX_MENTIONS:
         await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username, "spam_deleted", "Too many mentions", message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Too many mentions", text)
         return
 
     emoji_count = sum(1 for char in text if char in EMOJI_LIST)
     if emoji_count >= MAX_EMOJIS and DELETE_EMOJIS:
         await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username, "spam_deleted", "Too many emojis", message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Too many emojis", text)
         return
 
     caps_text = sum(1 for char in text if char.isupper())
     if caps_text >= MIN_CAPS_LENGTH and caps_text > len(text) * 0.7:
         await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username, "spam_deleted", "Excessive capitalization", message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Excessive capitalization", text)
         return
 
     elif message.audio and DELETE_AUDIO:
         await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username, "spam_deleted", "Audio message deleted", message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Audio message deleted", text)
         return
 
     elif message.video and DELETE_VIDEO:
         await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username, "spam_deleted", "Video message deleted", message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Video message deleted", text)
         return
 
     elif message.video_note and DELETE_VIDEO_NOTES:
         await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username, "spam_deleted", "Video note deleted", message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Video note deleted", text)
         return
 
     elif message.sticker and DELETE_STICKERS:
         await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username, "spam_deleted", "Sticker deleted", message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Sticker deleted", text)
         return
 
     elif DELETE_CHINESE and any("\u4e00" <= char <= "\u9fff" for char in message.text):
         await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username, "spam_deleted", "Chinese characters deleted", message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Chinese characters deleted", text)
         return
 
     elif DELETE_RTL and any("\u0590" <= char <= "\u08ff" for char in message.text):
         await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username, "spam_deleted", "RTL characters deleted", message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "RTL characters deleted", text)
         return
 
     elif DELETE_EMAILS and re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", message.text):
         await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username, "spam_deleted", "Email address deleted", message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Email address deleted", text)
         return
 
     elif DELETE_REFERRAL_LINKS and re.search(r"referral_link_pattern", message.text):
         await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username, "spam_deleted", "Referral link deleted", message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Referral link deleted", text)
         return
 
     elif message.forward_from:
         await bot.delete_message(chat_id, message.message_id)
-        await save_message(message.message_id, chat_id, user_id, username, first_name, text,
-                           action="forwarded_message_deleted")
-        await log_action(chat_id, user_id, username, "spam_deleted", "Deleted forwarded message", message.message_id)
+        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Deleted forwarded message", text)
         return
 
     await save_message(message.message_id,chat_id, user_id, username, first_name, text)
@@ -462,10 +431,9 @@ async def track_admin_actions(update: ChatMemberUpdated):
     # Записуємо дію адміністратора в лог
     if action:
         await log_action(
+            first_name=initiator.first_name,
             chat_id=update.chat.id,
             user_id=initiator.id,  # Ідентифікатор адміністратора
             username=initiator.username,  # Ім'я користувача адміністратора
             action_type=action,  # Тип дії (ban, mute, unban, unmute)
-            info=info,  # Деталі про дію
-            message_id=None  # Оскільки в цьому випадку message_id не використовується
-        )
+            info=info)

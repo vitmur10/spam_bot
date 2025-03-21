@@ -52,7 +52,7 @@ class MuteUserInlineForm(forms.Form):
     )
 
 class ActionLogAdmin(admin.ModelAdmin):
-    list_display = ("created_at", "username", "action_type", "chat_name", "user_id", "message_text", "info", 'mute_duration_field')
+    list_display = ("created_at", "username", "first_name", "action_type", "chat_name", "user_id", "message", "info", 'mute_duration_field')
     list_filter = ("action_type", "created_at", "chats_names")
     search_fields = ("username", "user_id", "message_text", "info")
     ordering = ("-created_at",)
@@ -186,11 +186,6 @@ class ActionLogAdmin(admin.ModelAdmin):
 
     chat_name.short_description = "Назва чату"
 
-    def message_text(self, obj):
-        return format_html('<a href="/admin/setting_bot/message/{}/change/">{}</a>', obj.message.id, obj.message.message_text) if obj.message else "Без тексту"
-
-    message_text.short_description = "Текст повідомлення"
-
     def info(self, obj):
         return obj.info if obj.info else "Без додаткової інформації"
 
@@ -208,12 +203,12 @@ admin.site.register(ActionLog, ActionLogAdmin)
 
 class UserAdmin(admin.ModelAdmin):
     list_display = (
-        'user_id', 'first_name', 'chats_names', 'get_status', 'mute_count', 'is_banned',
+        'user_id', "username", 'first_name', 'chats_names', 'get_status', 'mute_count', 'is_banned',
         'is_muted', 'mute_until', 'banned_at', 'message_count', 'last_message_date', 'mute_duration_field'
     )
     actions = ['ban_user', 'unban_user', 'mute_user', 'unmute_user']
 
-    list_filter = ('is_banned', 'is_muted', 'chats_names', 'mute_count', 'message_count')
+    list_filter = ('is_banned', 'is_muted', 'chats_names')
     search_fields = ('first_name', 'user_id', 'chats_names__name')
     ordering = ('-last_message_date',)
 

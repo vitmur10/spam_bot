@@ -78,14 +78,13 @@ class Message(models.Model):
 class ActionLog(models.Model):
     chats_names = models.ForeignKey(Chats, on_delete=models.CASCADE)
     user_id = models.BigIntegerField()
-    username = models.CharField(max_length=255, null=True, blank=True)
+    username = models.CharField(max_length=255, null=True, blank=True)  # Юзернейм відправника
+    first_name = models.CharField(max_length=255, null=True, blank=True)  # Ім'я відправника
     action_type = models.CharField(max_length=50)  # Наприклад: 'spam_deleted', 'user_muted'
-    message = models.ForeignKey(
-        Message,
-        on_delete=models.CASCADE,
-        related_name='action_logs',
+    message = models.TextField(
         null=True,
-        blank=True )
+        blank=True
+    )
     info = models.TextField(null=True, blank=True)  # Додане поле для зберігання деталей дії
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -102,8 +101,8 @@ class ActionLog(models.Model):
 class User(models.Model):
     chats_names = models.ForeignKey('Chats', on_delete=models.CASCADE)
     user_id = models.BigIntegerField(unique=True)
-    first_name = models.CharField(max_length=255, blank=True, null=True)
-
+    username = models.CharField(max_length=255, null=True, blank=True)  # Юзернейм відправника
+    first_name = models.CharField(max_length=255, null=True, blank=True)  # Ім'я відправника
     is_banned = models.BooleanField(default=False)
     is_muted = models.BooleanField(default=False)
     mute_count = models.IntegerField(default=0)
