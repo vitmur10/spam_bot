@@ -51,13 +51,19 @@ class MuteUserInlineForm(forms.Form):
         help_text="Введіть кількість хвилин, на скільки мутити користувача."
     )
 
+
 class ActionLogAdmin(admin.ModelAdmin):
-    list_display = ("created_at", "username", "first_name", "action_type", "chat_name", "user_id", "message", "info", 'mute_duration_field')
+    list_display = ("created_at", "username", "first_name", "action_type", "chat_name", "user_id", "message", "info",
+                    'mute_duration_field')
     list_filter = ("action_type", "created_at", "chats_names")
-    search_fields = ("username", "user_id", "message_text", "info")
+
+    # Оновлений список полів для пошуку
+    search_fields = ("username", "user_id", "message", "info")
+
     ordering = ("-created_at",)
 
-    actions = ["export_as_csv", "export_as_json", "delete_old_logs", "ban_user", "unban_user", "mute_user", "unmute_user"]
+    actions = ["export_as_csv", "export_as_json", "delete_old_logs", "ban_user", "unban_user", "mute_user",
+               "unmute_user"]
 
     # Поле для введення тривалості мутації
     def mute_duration_field(self, obj):
@@ -69,7 +75,6 @@ class ActionLogAdmin(admin.ModelAdmin):
     # Метод для блокування користувачів
     def ban_user(self, request, queryset):
         for log in queryset:
-            # Отримуємо користувача за user_id
             try:
                 user = User.objects.get(user_id=log.user_id)
             except User.DoesNotExist:
@@ -89,7 +94,6 @@ class ActionLogAdmin(admin.ModelAdmin):
     # Метод для розблокування користувачів
     def unban_user(self, request, queryset):
         for log in queryset:
-            # Отримуємо користувача за user_id
             try:
                 user = User.objects.get(user_id=log.user_id)
             except User.DoesNotExist:
@@ -112,7 +116,6 @@ class ActionLogAdmin(admin.ModelAdmin):
         if mute_duration:
             mute_duration = timedelta(minutes=int(mute_duration))
             for log in queryset:
-                # Отримуємо користувача за user_id
                 try:
                     user = User.objects.get(user_id=log.user_id)
                 except User.DoesNotExist:
@@ -132,22 +135,19 @@ class ActionLogAdmin(admin.ModelAdmin):
     # Метод для розмутації користувачів
     def unmute_user(self, request, queryset):
         for log in queryset:
-            # Отримуємо користувача за user_id
             try:
                 user = User.objects.get(user_id=log.user_id)
             except User.DoesNotExist:
                 continue  # Якщо користувача не знайдено, пропускаємо
-
-            # Викликаємо метод unmute для користувача
             if user:
-                asyncio.run(user.unmute())  # Викликаємо метод unmute для моделі User
+                asyncio.run(user.unmute())
                 ActionLog.objects.create(
-                    chats_names=log.chats_names,  # Зберігаємо інформацію про чат з журналу
+                    chats_names=log.chats_names,
                     user_id=user.user_id,
                     action_type="user_unmuted",
                     info=f"Розмучено користувача {user.first_name} ({user.user_id})",
                 )
-                unmute_user_telegram(log.chats_names.chat_id, user.user_id)  # Відправка в Telegram (описана нижче)
+                unmute_user_telegram(log.chats_names.chat_id, user.user_id)
 
     unmute_user.short_description = "Розмутити користувачів"
 
@@ -161,7 +161,8 @@ class ActionLogAdmin(admin.ModelAdmin):
         for log in queryset.iterator():
             message_text = log.message.message_text if log.message else "Без тексту"
             info = log.info if log.info else "Без додаткової інформації"
-            writer.writerow([log.created_at, log.chats_names, log.user_id, log.username, log.action_type, message_text, info])
+            writer.writerow(
+                [log.created_at, log.chats_names, log.user_id, log.username, log.action_type, message_text, info])
 
         return response
 

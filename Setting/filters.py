@@ -365,7 +365,6 @@ async def track_admin_actions(update: ChatMemberUpdated):
     action = None
     info = ""
     chat = await sync_to_async(Chats.objects.get)(chat_id=update.chat.id)  # Отримуємо чат, де відбулась дія
-
     # Визначаємо тип дії та збираємо інформацію про неї
     if target.status == "kicked":
         action = "ban"
