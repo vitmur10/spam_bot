@@ -68,29 +68,41 @@ class ActionLogAdmin(admin.ModelAdmin):
 
     # Метод для блокування користувачів
     def ban_user(self, request, queryset):
-        for user in queryset:
-            asyncio.run(user.ban())
-            ActionLog.objects.create(
-                chats_names=user.chats_names,
-                user_id=user.user_id,
-                action_type="user_banned",
-                info=f"Заблоковано користувача {user.first_name} ({user.user_id})",
-            )
-            ban_user_telegram(user.chats_names.chat_id, user.user_id)
+        for log in queryset:
+            # Отримуємо користувача за user_id
+            try:
+                user = User.objects.get(user_id=log.user_id)
+            except User.DoesNotExist:
+                continue  # Якщо користувача не знайдено, пропускаємо
+            if user:
+                asyncio.run(user.ban())
+                ActionLog.objects.create(
+                    chats_names=user.chats_names,
+                    user_id=user.user_id,
+                    action_type="user_banned",
+                    info=f"Заблоковано користувача {user.first_name} ({user.user_id})",
+                )
+                ban_user_telegram(user.chats_names.chat_id, user.user_id)
 
     ban_user.short_description = "Заблокувати користувачів"
 
     # Метод для розблокування користувачів
     def unban_user(self, request, queryset):
-        for user in queryset:
-            asyncio.run(user.unban())
-            ActionLog.objects.create(
-                chats_names=user.chats_names,
-                user_id=user.user_id,
-                action_type="user_unbanned",
-                info=f"Розблоковано користувача {user.first_name} ({user.user_id})",
-            )
-            unban_user_telegram(user.chats_names.chat_id, user.user_id)
+        for log in queryset:
+            # Отримуємо користувача за user_id
+            try:
+                user = User.objects.get(user_id=log.user_id)
+            except User.DoesNotExist:
+                continue  # Якщо користувача не знайдено, пропускаємо
+            if user:
+                asyncio.run(user.unban())
+                ActionLog.objects.create(
+                    chats_names=user.chats_names,
+                    user_id=user.user_id,
+                    action_type="user_unbanned",
+                    info=f"Розблоковано користувача {user.first_name} ({user.user_id})",
+                )
+                unban_user_telegram(user.chats_names.chat_id, user.user_id)
 
     unban_user.short_description = "Розблокувати користувачів"
 

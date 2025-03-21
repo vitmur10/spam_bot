@@ -1,9 +1,10 @@
 import asyncio
 from datetime import timedelta
+
 from aiogram import Router
 from aiogram import types
 from aiogram.filters import Filter
-from aiogram.types import Message, ChatPermissions, ChatMemberUpdated, InlineKeyboardButton
+from aiogram.types import ChatPermissions, ChatMemberUpdated
 from django.utils.timezone import now
 
 from const import *
@@ -435,5 +436,5 @@ async def track_admin_actions(update: ChatMemberUpdated):
             chat_id=update.chat.id,
             user_id=initiator.id,  # Ідентифікатор адміністратора
             username=initiator.username,  # Ім'я користувача адміністратора
-            action_type=action,  # Тип дії (ban, mute, unban, unmute)
+            action_type=action,  # Тип дії (ban, mute, unban, unmute, delete_message)
             info=info)
