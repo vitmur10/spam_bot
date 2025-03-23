@@ -215,11 +215,10 @@ async def filter_spam(message: Message, bot: Bot):
         DELETE_REFERRAL_LINKS = settings.get("DELETE_REFERRAL_LINKS", [False])[0]
 
         EMOJI_LIST = settings.get("EMOJI_LIST", [])
-        EMOJI_LIST = ' '.join(flatten_and_join(EMOJI_LIST))
-
-    text = re.sub(r"[^\w\s]", "", message.text.lower()) if message.text else ""
+        EMOJI_LIST = flatten_and_join(EMOJI_LIST)
+        flattened_emoji_list = [emoji for emojis in EMOJI_LIST for emoji in emojis]
+    text = re.sub(r"[^\w\s]", "", (message.text or message.caption or "").lower())
     chat = await sync_to_async(Chats.objects.get)(chat_id=chat_id)
-
     # Коли користувач отримує мут
     if any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_MUTE):
         await bot.delete_message(chat_id, message.message_id)
@@ -285,21 +284,24 @@ async def filter_spam(message: Message, bot: Bot):
         await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Deleted message with button",
                          text)
         return
-
-    if URL_PATTERN.search(message.text) and DELETE_LINKS:
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Deleted link", text)
-        return
+    if message.text:
+        if URL_PATTERN.search(message.text) and DELETE_LINKS:
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Deleted link", text)
+            return
 
     if text.count("@") >= MAX_MENTIONS:
         await bot.delete_message(chat_id, message.message_id)
         await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Too many mentions", text)
         return
-
-    emoji_count = sum(1 for char in text if char in EMOJI_LIST)
+    try:
+        emoji_count = sum(1 for char in message.text if char in flattened_emoji_list)
+    except TypeError:
+        return
+    # Перевірка на кількість емодзі
     if emoji_count >= MAX_EMOJIS and DELETE_EMOJIS:
         await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Too many emojis", text)
+        await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Too many emojis", text)
         return
 
     caps_text = sum(1 for char in text if char.isupper())
@@ -352,7 +354,7 @@ async def filter_spam(message: Message, bot: Bot):
         await bot.delete_message(chat_id, message.message_id)
         await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Deleted forwarded message", text)
         return
-
+    print(text)
     await save_message(message.message_id,chat_id, user_id, username, first_name, text)
     await increment_message_count(user_id=user_id, chat_id=chat_id, name=first_name)
 
