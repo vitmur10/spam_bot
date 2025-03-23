@@ -102,10 +102,6 @@ async def auto_unban_unmute(bot: Bot):
                 )
 
                 # Оновлюємо статус користувача на "unmuted"
-                await sync_to_async(user.update)(  # Оновлюємо запис у базі
-                    {"status": "unmuted"},
-                    where={"user_id": user.user_id}
-                )
                 await sync_to_async(user.unmute())  # Викликаємо метод для зняття мутації
 
                 # Оновлення статусу користувача в чаті (розмутування, розбанення)
@@ -243,6 +239,7 @@ async def filter_spam(message: Message, bot: Bot):
             f"Користувач був замучений ботом через вживання забороненого слова: '{matched_word} до {user.mute_until}'.",
             text
         )
+        return
 
     # Коли користувач отримує кік
     elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_KICK):
@@ -354,7 +351,6 @@ async def filter_spam(message: Message, bot: Bot):
         await bot.delete_message(chat_id, message.message_id)
         await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Deleted forwarded message", text)
         return
-    print(text)
     await save_message(message.message_id,chat_id, user_id, username, first_name, text)
     await increment_message_count(user_id=user_id, chat_id=chat_id, name=first_name)
 
