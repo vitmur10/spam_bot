@@ -225,7 +225,7 @@ admin.site.register(ActionLog, ActionLogAdmin)
 class UserAdmin(admin.ModelAdmin):
     list_display = (
         "username", 'first_name', "chat_name", 'get_status', 'mute_count', 'is_banned',
-        'is_muted', 'last_message_date', 'mute_duration_field', 'message_count_link', 'action_log_link'
+        'is_muted', 'mute_duration_field', 'message_count_link', 'action_log_link'
     )
     actions = ['ban_user', 'unban_user', 'mute_user', 'unmute_user']
     list_filter = ('is_banned', 'is_muted', 'chats_names')
