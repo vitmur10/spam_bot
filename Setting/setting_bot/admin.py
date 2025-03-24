@@ -244,6 +244,7 @@ class UserAdmin(admin.ModelAdmin):
         url = reverse('admin:setting_bot_message_changelist') + f'?user_id={obj.user_id}'
         return format_html('<a href="{}">{}</a>', url, obj.message_count)
     message_count_link.short_description = 'Кількість повідомлень'
+    message_count_link.admin_order_field = 'message_count'
 
     # Посилання на ActionLog
     def action_log_link(self, obj):
@@ -320,10 +321,12 @@ admin.site.register(User, UserAdmin)
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
-    list_display = ("chat_name", "user_link", "username", "first_name", "timestamp", "short_message", "action")
+    list_display = ("chat_name", "user_link", "username", "first_name", "timestamp", "short_message", "action", 'mute_duration_field')
     search_fields = ("username", "first_name", "message_text")
     list_filter = ("chats_names", "timestamp")
     ordering = ("-timestamp",)
+
+    actions = ["export_as_csv", "export_as_json", "ban_user", "unban_user", "mute_user", "unmute_user"]
 
     def short_message(self, obj):
         return obj.message_text[:50] + "..." if len(obj.message_text) > 50 else obj.message_text
@@ -334,10 +337,124 @@ class MessageAdmin(admin.ModelAdmin):
     chat_name.short_description = "Назва чату"
 
     def user_link(self, obj):
-        # Створюємо посилання на користувача, якщо він існує
         user = User.objects.filter(user_id=obj.user_id).first()
         if user:
             url = reverse("admin:setting_bot_user_change", args=[user.id])  # Замініть 'appname' на своє ім'я додатку
             return format_html('<a href="{}">{}</a>', url, obj.user_id)
         return obj.user_id
     user_link.short_description = "User ID"
+
+    def mute_duration_field(self, obj):
+        form = MuteUserInlineForm(initial={'mute_duration': 5})  # Встановлюємо стандартне значення
+        return form.as_p()
+    mute_duration_field.short_description = 'Тривалість мутації'
+
+    # Метод для блокування користувачів
+    def ban_user(self, request, queryset):
+        for message in queryset:
+            try:
+                user = User.objects.get(user_id=message.user_id)
+            except User.DoesNotExist:
+                continue  # Якщо користувача не знайдено, пропускаємо
+            if user:
+                asyncio.run(user.ban())
+                ActionLog.objects.create(
+                    chats_names=user.chats_names,
+                    user_id=user.user_id,
+                    action_type="user_banned",
+                    info=f"Заблоковано користувача {user.first_name} ({user.user_id})",
+                )
+                ban_user_telegram(user.chats_names.chat_id, user.user_id)
+
+    ban_user.short_description = "Заблокувати користувачів"
+
+    # Метод для розблокування користувачів
+    def unban_user(self, request, queryset):
+        for message in queryset:
+            try:
+                user = User.objects.get(user_id=message.user_id)
+            except User.DoesNotExist:
+                continue  # Якщо користувача не знайдено, пропускаємо
+            if user:
+                asyncio.run(user.unban())
+                ActionLog.objects.create(
+                    chats_names=user.chats_names,
+                    user_id=user.user_id,
+                    action_type="user_unbanned",
+                    info=f"Розблоковано користувача {user.first_name} ({user.user_id})",
+                )
+                unban_user_telegram(user.chats_names.chat_id, user.user_id)
+
+    unban_user.short_description = "Розблокувати користувачів"
+
+    # Метод для мутації користувачів
+    def mute_user(self, request, queryset):
+        mute_duration = request.POST.get('mute_duration', None)
+        if mute_duration:
+            mute_duration = timedelta(minutes=int(mute_duration))
+            for message in queryset:
+                try:
+                    user = User.objects.get(user_id=message.user_id)
+                except User.DoesNotExist:
+                    continue  # Якщо користувача не знайдено, пропускаємо
+            if user:
+                asyncio.run(user.mute(mute_duration))
+                ActionLog.objects.create(
+                    chats_names=user.chats_names,
+                    user_id=user.user_id,
+                    action_type="user_muted",
+                    info=f"Замучено користувача {user.first_name} ({user.user_id}) до {user.mute_until}",
+                )
+                mute_user_telegram(user.chats_names.chat_id, user.user_id, mute_duration)
+
+    mute_user.short_description = "Замутити користувачів"
+
+    # Метод для розмутації користувачів
+    def unmute_user(self, request, queryset):
+        for message in queryset:
+            try:
+                user = User.objects.get(user_id=message.user_id)
+            except User.DoesNotExist:
+                continue  # Якщо користувача не знайдено, пропускаємо
+            if user:
+                asyncio.run(user.unmute())
+                ActionLog.objects.create(
+                    chats_names=message.chats_names,
+                    user_id=user.user_id,
+                    action_type="user_unmuted",
+                    info=f"Розмучено користувача {user.first_name} ({user.user_id})",
+                )
+                unmute_user_telegram(message.chats_names.chat_id, user.user_id)
+
+    unmute_user.short_description = "Розмутити користувачів"
+
+    # Експортуємо в CSV
+    def export_as_csv(self, request, queryset):
+        response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
+        response["Content-Disposition"] = 'attachment; filename="message_logs.csv"'
+        writer = csv.writer(response, dialect="excel")
+        writer.writerow(["timestamp", "chat_name", "user_id", "username", "message_text", "info"])
+
+        for message in queryset.iterator():
+            info = message.info if message.info else "Без додаткової інформації"
+            writer.writerow([message.timestamp, message.chats_names, message.user_id, message.username, message.message_text, info])
+
+        return response
+
+    export_as_csv.short_description = "Експортувати у CSV"
+
+    # Експортуємо в JSON
+    def export_as_json(self, request, queryset):
+        response = HttpResponse(content_type="application/json")
+        response["Content-Disposition"] = 'attachment; filename="message_logs.json"'
+
+        logs = list(queryset.values("timestamp", "chat_name", "user_id", "username", "message_text", "info"))
+
+        for log in logs:
+            log["timestamp"] = log["timestamp"].isoformat()
+            log["info"] = log["info"] if log["info"] else "Без додаткової інформації"
+
+        response.write(json.dumps(logs, ensure_ascii=False, indent=4))
+        return response
+
+    export_as_json.short_description = "Експортувати у JSON"
