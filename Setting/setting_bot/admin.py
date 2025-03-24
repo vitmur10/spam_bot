@@ -9,6 +9,7 @@ from django.http import HttpResponse
 from .views import *
 from .models import *
 from django import forms
+from django.urls import reverse
 
 
 
@@ -53,17 +54,24 @@ class MuteUserInlineForm(forms.Form):
 
 
 class ActionLogAdmin(admin.ModelAdmin):
-    list_display = ("created_at", "username", "first_name", "action_type", "chat_name", "user_id", "message", "info",
-                    'mute_duration_field')
+    list_display = (
+        "created_at", "username", "first_name", "action_type", "chat_name", "user_link", "message", "info",
+        'mute_duration_field'
+    )
     list_filter = ("action_type", "created_at", "chats_names")
-
-    # Оновлений список полів для пошуку
     search_fields = ("username", "user_id", "message", "info")
-
     ordering = ("-created_at",)
 
-    actions = ["export_as_csv", "export_as_json", "delete_old_logs", "ban_user", "unban_user", "mute_user",
-               "unmute_user"]
+    actions = ["export_as_csv", "export_as_json", "delete_old_logs", "ban_user", "unban_user", "mute_user", "unmute_user"]
+
+    def user_link(self, obj):
+        try:
+            user = User.objects.get(user_id=obj.user_id)
+            url = reverse("admin:setting_bot_user_change", args=[user.id])
+            return format_html('<a href="{}">{}</a>', url, obj.user_id)
+        except User.DoesNotExist:
+            return obj.user_id
+    user_link.short_description = "User ID"
 
     # Поле для введення тривалості мутації
     def mute_duration_field(self, obj):
@@ -216,23 +224,40 @@ admin.site.register(ActionLog, ActionLogAdmin)
 
 class UserAdmin(admin.ModelAdmin):
     list_display = (
-        'user_id', "username", 'first_name', 'chats_names', 'get_status', 'mute_count', 'is_banned',
-        'is_muted', 'mute_until', 'banned_at', 'message_count', 'last_message_date', 'mute_duration_field'
+        "username", 'first_name', "chat_name", 'get_status', 'mute_count', 'is_banned',
+        'is_muted', 'last_message_date', 'mute_duration_field', 'message_count_link', 'action_log_link'
     )
     actions = ['ban_user', 'unban_user', 'mute_user', 'unmute_user']
-
     list_filter = ('is_banned', 'is_muted', 'chats_names')
     search_fields = ('first_name', 'user_id', 'chats_names__name')
     ordering = ('-last_message_date',)
 
-    # Додаткове поле для введення тривалості мутації
+    # Поле для введення тривалості мутації
     def mute_duration_field(self, obj):
-        form = MuteUserInlineForm(initial={'mute_duration': 5})  # Встановлюємо стандартне значення
+        form = MuteUserInlineForm(initial={'mute_duration': 5})
         return form.as_p()
 
     mute_duration_field.short_description = 'Тривалість мутації'
 
-    # Метод для блокування користувачів
+    # Посилання на фільтровані повідомлення
+    def message_count_link(self, obj):
+        url = reverse('admin:setting_bot_message_changelist') + f'?user_id={obj.user_id}'
+        return format_html('<a href="{}">{}</a>', url, obj.message_count)
+    message_count_link.short_description = 'Кількість повідомлень'
+
+    # Посилання на ActionLog
+    def action_log_link(self, obj):
+        url = reverse('admin:setting_bot_actionlog_changelist') + f'?user_id={obj.user_id}'
+        return format_html('<a href="{}">Переглянути дії</a>', url)
+    action_log_link.short_description = 'Логи дій'
+
+    # Відображення статусу користувача
+    def get_status(self, obj):
+        return "Заблоковано" if obj.is_banned else "Активний"
+    get_status.short_description = 'Статус'
+
+
+    # Дії з користувачами
     def ban_user(self, request, queryset):
         for user in queryset:
             asyncio.run(user.ban())
@@ -243,10 +268,8 @@ class UserAdmin(admin.ModelAdmin):
                 info=f"Заблоковано користувача {user.first_name} ({user.user_id})",
             )
             ban_user_telegram(user.chats_names.chat_id, user.user_id)
-
     ban_user.short_description = "Заблокувати користувачів"
 
-    # Метод для розблокування користувачів
     def unban_user(self, request, queryset):
         for user in queryset:
             asyncio.run(user.unban())
@@ -257,12 +280,9 @@ class UserAdmin(admin.ModelAdmin):
                 info=f"Розблоковано користувача {user.first_name} ({user.user_id})",
             )
             unban_user_telegram(user.chats_names.chat_id, user.user_id)
-
     unban_user.short_description = "Розблокувати користувачів"
 
-    # Метод для мутації користувачів
     def mute_user(self, request, queryset):
-        # Отримуємо введену тривалість мутації з POST
         mute_duration = request.POST.get('mute_duration', None)
         if mute_duration:
             mute_duration = timedelta(minutes=int(mute_duration))
@@ -275,14 +295,11 @@ class UserAdmin(admin.ModelAdmin):
                     info=f"Замучено користувача {user.first_name} ({user.user_id}) до {user.mute_until}",
                 )
                 mute_user_telegram(user.chats_names.chat_id, user.user_id, mute_duration)
-
     mute_user.short_description = "Замутити користувачів"
 
-    # Метод для розмутації користувачів
     def unmute_user(self, request, queryset):
         for user in queryset:
-            # Викликаємо асинхронну функцію через asyncio.run() або await
-            asyncio.run(user.unmute())  # Використовуємо asyncio.run для асинхронних корутин
+            asyncio.run(user.unmute())
             ActionLog.objects.create(
                 chats_names=user.chats_names,
                 user_id=user.user_id,
@@ -290,27 +307,37 @@ class UserAdmin(admin.ModelAdmin):
                 info=f"Розмучено користувача {user.first_name} ({user.user_id})",
             )
             unmute_user_telegram(user.chats_names.chat_id, user.user_id)
-
     unmute_user.short_description = "Розмутити користувачів"
 
+    def chat_name(self, obj):
+        return obj.chats_names.name if obj.chats_names else "Без чату"
+    chat_name.short_description = "Назва чату"
 
-# Реєструємо адміністраторську модель для User
 admin.site.register(User, UserAdmin)
+
 
 
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
-    list_display = ("chat_name", "user_id", "username", "first_name", "timestamp", "short_message", "action")  # Використовуємо chat_name замість chats_names
+    list_display = ("chat_name", "user_link", "username", "first_name", "timestamp", "short_message", "action")
     search_fields = ("username", "first_name", "message_text")
-    list_filter = ("chats_names", "timestamp")  # Це залишимо для фільтрації по chats_names
+    list_filter = ("chats_names", "timestamp")
     ordering = ("-timestamp",)
 
     def short_message(self, obj):
         return obj.message_text[:50] + "..." if len(obj.message_text) > 50 else obj.message_text
-
     short_message.short_description = "Повідомлення"
 
-    def chat_name(self, obj):  # Додаємо метод для повернення назви чату
+    def chat_name(self, obj):
         return obj.chats_names.name if obj.chats_names else "Без чату"
-    chat_name.short_description = "Назва чату"  # Опис для стовпця
+    chat_name.short_description = "Назва чату"
+
+    def user_link(self, obj):
+        # Створюємо посилання на користувача, якщо він існує
+        user = User.objects.filter(user_id=obj.user_id).first()
+        if user:
+            url = reverse("admin:setting_bot_user_change", args=[user.id])  # Замініть 'appname' на своє ім'я додатку
+            return format_html('<a href="{}">{}</a>', url, obj.user_id)
+        return obj.user_id
+    user_link.short_description = "User ID"
