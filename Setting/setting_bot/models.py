@@ -100,7 +100,7 @@ class ActionLog(models.Model):
 
 class User(models.Model):
     chats_names = models.ForeignKey('Chats', on_delete=models.CASCADE)
-    user_id = models.BigIntegerField()
+    user_id = models.BigIntegerField(unique=True)
     username = models.CharField(max_length=255, null=True, blank=True)  # Юзернейм відправника
     first_name = models.CharField(max_length=255, null=True, blank=True)  # Ім'я відправника
     is_banned = models.BooleanField(default=False)
