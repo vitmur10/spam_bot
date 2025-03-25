@@ -100,22 +100,22 @@ class ActionLog(models.Model):
 
 class User(models.Model):
     chats_names = models.ForeignKey('Chats', on_delete=models.CASCADE)
-    user_id = models.BigIntegerField()
-    username = models.CharField(max_length=255, null=True, blank=True)
-    first_name = models.CharField(max_length=255, null=True, blank=True)
+    user_id = models.BigIntegerField(unique=True)
+    username = models.CharField(max_length=255, null=True, blank=True)  # Юзернейм відправника
+    first_name = models.CharField(max_length=255, null=True, blank=True)  # Ім'я відправника
     is_banned = models.BooleanField(default=False)
     is_muted = models.BooleanField(default=False)
     mute_count = models.IntegerField(default=0)
     mute_until = models.DateTimeField(null=True, blank=True)
     banned_at = models.DateTimeField(null=True, blank=True)
+
     status = models.CharField(max_length=50, null=True, blank=True)
+
     message_count = models.IntegerField(default=0)
     last_message_date = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=['user_id', 'chats_names'], name='unique_user_per_chat')
-        ]
+        unique_together = ('user_id', 'chats_names')
         verbose_name = "Користувач"
         verbose_name_plural = "Користувачі"
         ordering = ['-last_message_date']
@@ -164,6 +164,7 @@ class User(models.Model):
         if self.is_muted and self.mute_until:
             return f"Замучено до {self.mute_until.strftime('%Y-%m-%d %H:%M:%S')}"
         return self.status or "Активний"
+
 
 
 
