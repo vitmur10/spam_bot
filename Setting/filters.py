@@ -414,10 +414,6 @@ async def filter_spam(message: Message, bot: Bot):
     elif message.from_user.username == "combot":
         await bot.delete_message(chat_id, message.message_id)
         return
-    print(first_name)
-    print(username)
-    print(message)
-    print(message.from_user.is_bot)
     await save_message(message.message_id,chat_id, user_id, username, first_name, text)
     await increment_message_count(user_id=user_id, chat_id=chat_id, name=first_name)
 
