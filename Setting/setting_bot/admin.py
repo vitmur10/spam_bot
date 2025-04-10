@@ -3,6 +3,8 @@ import csv
 import json
 import os
 from datetime import timedelta
+
+from django.db.models import Sum
 from django.utils.html import format_html
 from django.contrib import admin
 from django.http import HttpResponse
@@ -199,20 +201,61 @@ class ChatMembershipInline(admin.TabularInline):
     )
     can_delete = False
     show_change_link = False
+class TotalMuteCountFilter(admin.SimpleListFilter):
+    title = 'Кількість мутів'
+    parameter_name = 'mute_count'
+
+    def lookups(self, request, model_admin):
+        return (
+            ('less_than_15', 'До 15'),
+            ('greater_than_or_equal_15', 'Від 15'),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == 'less_than_15':
+            return queryset.filter(chatmembership__mute_count__lt=15)
+        if self.value() == 'greater_than_or_equal_15':
+            return queryset.filter(chatmembership__mute_count__gte=15)
+        return queryset
+
+class TotalMessageCountFilter(admin.SimpleListFilter):
+    title = 'Кількість повідомлень'
+    parameter_name = 'message_count'
+
+    def lookups(self, request, model_admin):
+        return (
+            ('less_than_15', 'До 15'),
+            ('greater_than_or_equal_15', 'Від 15'),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == 'less_than_15':
+            return queryset.filter(chatmembership__message_count__lt=15)
+        if self.value() == 'greater_than_or_equal_15':
+            return queryset.filter(chatmembership__message_count__gte=15)
+        return queryset
 
 
 @admin.register(ChatUser)
 class ChatUserAdmin(admin.ModelAdmin):
     list_display = (
         "username", "first_name", "get_chats", 'get_status_display',
-        'total_mute_count', 'total_message_count', 'message_count_link', 'action_log_link'
+        'total_mute_count', 'message_count_link', 'action_log_link'
     )
     actions = ['ban_user', 'unban_user', 'mute_user', 'unmute_user']
     search_fields = ('first_name', 'user_id', 'username')
     inlines = [ChatMembershipInline]
 
+    # Додаємо фільтри
+    list_filter = (
+        'chatmembership__status',  # Фільтр за статусом у чаті
+        TotalMuteCountFilter,  # Фільтр за кількістю мутів "до 15" або "від 15"
+        TotalMessageCountFilter,  # Фільтр за кількістю повідомлень "до 15" або "від 15"
+    )
+
     def get_chats(self, obj):
         return ", ".join([m.chat.name for m in ChatMembership.objects.filter(user=obj)])
+
     get_chats.short_description = "Чати"
 
     def get_status_display(self, obj):
@@ -220,25 +263,30 @@ class ChatUserAdmin(admin.ModelAdmin):
         for m in ChatMembership.objects.filter(user=obj):
             statuses.append(f"{m.chat.name}: {m.get_status()}")
         return format_html("<br>".join(statuses))
+
     get_status_display.short_description = "Статуси"
 
     def total_mute_count(self, obj):
         return sum(m.mute_count for m in ChatMembership.objects.filter(user=obj))
+
     total_mute_count.short_description = "Кількість мутів"
 
     def total_message_count(self, obj):
         return sum(m.message_count for m in ChatMembership.objects.filter(user=obj))
+
     total_message_count.short_description = "Повідомлень загалом"
 
     def message_count_link(self, obj):
         url = reverse('admin:setting_bot_message_changelist') + f'?user_id={obj.user_id}'
         total = self.total_message_count(obj)
         return format_html('<a href="{}">{}</a>', url, total)
+
     message_count_link.short_description = "Повідомлення"
 
     def action_log_link(self, obj):
         url = reverse('admin:setting_bot_actionlog_changelist') + f'?user_id={obj.user_id}'
         return format_html('<a href="{}">Логи</a>', url)
+
     action_log_link.short_description = 'Дії'
 
     def ban_user(self, request, queryset):
@@ -252,6 +300,7 @@ class ChatUserAdmin(admin.ModelAdmin):
                     info=f"Заблоковано користувача {user.first_name} ({user.user_id})",
                 )
                 ban_user_telegram(m.chat.chat_id, user.user_id)
+
     ban_user.short_description = "Заблокувати користувача"
 
     def unban_user(self, request, queryset):
@@ -265,6 +314,7 @@ class ChatUserAdmin(admin.ModelAdmin):
                     info=f"Розблоковано користувача {user.first_name} ({user.user_id})",
                 )
                 unban_user_telegram(m.chat.chat_id, user.user_id)
+
     unban_user.short_description = "Розблокувати користувача"
 
     def mute_user(self, request, queryset):
@@ -280,6 +330,7 @@ class ChatUserAdmin(admin.ModelAdmin):
                     info=f"Замучено користувача {user.first_name} ({user.user_id}) до {m.mute_until}",
                 )
                 mute_user_telegram(m.chat.chat_id, user.user_id, mute_duration)
+
     mute_user.short_description = "Замутити користувача"
 
     def unmute_user(self, request, queryset):
@@ -293,6 +344,7 @@ class ChatUserAdmin(admin.ModelAdmin):
                     info=f"Розмучено користувача {user.first_name} ({user.user_id})",
                 )
                 unmute_user_telegram(m.chat.chat_id, user.user_id)
+
     unmute_user.short_description = "Розмутити користувача"
 
 

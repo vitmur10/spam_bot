@@ -76,11 +76,14 @@ class IsChatAllowed(Filter):
 
 
 async def get_muted_users():
-    """Отримуємо список користувачів, яких потрібно розмутити"""
-    now_plus_3 = datetime.now(timezone(timedelta(hours=3)))  # Київський часовий пояс (UTC+3)
+    """Отримуємо список ChatMembership-ів замучених користувачів з повною інформацією про ChatUser"""
+    now_plus_3 = datetime.now(timezone(timedelta(hours=3)))  # Київський час
 
-    # Отримуємо користувачів, у яких статус "muted" і час мута завершився
-    muted_users = await sync_to_async(list)(ChatMembership.objects.filter(is_muted=True, mute_until__lte=now_plus_3))
+    muted_users = await sync_to_async(list)(
+        ChatMembership.objects
+        .select_related('user')  # отримуємо ChatUser одразу
+        .filter(is_muted=True, mute_until__lte=now_plus_3)
+    )
 
     return muted_users
 
@@ -99,38 +102,44 @@ async def auto_unban_unmute(bot: Bot):
         # Отримуємо користувачів, яких потрібно розбанити або розмутити
         muted_users = await get_muted_users()  # Наприклад, User.objects.filter(is_muted=True)
 
-        for user in muted_users:
+        for membership in muted_users:
             # Перевіряємо, чи користувач мутований і чи настав час для розмутування
-            if user.is_muted and user.mute_until <= datetime.now(timezone.utc):
-                chats_names = await get_chats_names(user)  # Отримуємо чат користувача
+            if membership.is_muted and membership .mute_until <= datetime.now(timezone.utc):
+                chats_names = await get_chats_names(membership )  # Отримуємо чат користувача
                 chat = await get_chat_by_name(chats_names.name)  # Отримуємо сам чат
-
+                username = membership.user.username
+                first_name = membership.user.first_name
+                user_id = membership.user.user_id
                 # Логуємо дію в ActionLog
                 await sync_to_async(ActionLog.objects.create)(  # Створюємо запис у базі
-                    chats_names=chats_names,
-                    user_id=user.user_id,
-                    username=user.username,
-                    first_name=user.first_name,
+                    chat=chats_names,
+                    user_id=user_id,
+                    username=username,
+                    first_name=first_name,
                     action_type='unmute_unban',
-                    info=f"User {user.user_id} was unmuted and unbanned.",
+                    info=f"User {user_id} was unmuted and unbanned.",
                     created_at=datetime.now()
                 )
 
                 # Оновлюємо статус користувача на "unmuted"
-                await sync_to_async(user.unmute())  # Викликаємо метод для зняття мутації
+                await membership.unmute()  # Викликаємо метод для зняття мутації
 
                 # Оновлення статусу користувача в чаті (розмутування, розбанення)
                 # Важливо використовувати методи ботів для обмежень, якщо потрібно
-                await bot.restrict_chat_member(
-                    chat_id=chat.chat_id,
-                    user_id=user.user_id,
-                    permissions=types.ChatPermissions(
-                        can_send_messages=True,
-                        can_send_media_messages=True,
-                        can_send_other_messages=True,
-                        can_add_web_page_previews=True
-                    ),
-                )
+                print(chat.chat_id)
+                chat_member = await bot.get_chat_member(chat.chat_id, user_id)
+                print(chat_member.status)
+                if chat_member.status != "creator":
+                    await bot.restrict_chat_member(
+                        chat_id=chat.chat_id,
+                        user_id=user_id,
+                        permissions=types.ChatPermissions(
+                            can_send_messages=True,
+                            can_send_media_messages=True,
+                            can_send_other_messages=True,
+                            can_add_web_page_previews=True
+                        ),
+                    )
 
         # Чекаємо 60 секунд перед наступною перевіркою
         await asyncio.sleep(60)
@@ -402,9 +411,13 @@ async def filter_spam(message: Message, bot: Bot):
         await bot.delete_message(chat_id, message.message_id)
         await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Deleted forwarded message", text)
         return
-    if message.from_user and message.from_user.username == "combot":
+    elif message.from_user.username == "combot":
         await bot.delete_message(chat_id, message.message_id)
         return
+    print(first_name)
+    print(username)
+    print(message)
+    print(message.from_user.is_bot)
     await save_message(message.message_id,chat_id, user_id, username, first_name, text)
     await increment_message_count(user_id=user_id, chat_id=chat_id, name=first_name)
 
