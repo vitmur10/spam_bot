@@ -1,12 +1,13 @@
-import re
 import os
-from aiogram import Bot, Dispatcher, F
-from aiogram.client.default import DefaultBotProperties
-from dotenv import load_dotenv
-from aiogram.fsm.storage.memory import MemoryStorage
-from django.core.wsgi import get_wsgi_application
-from asgiref.sync import sync_to_async
+import re
 from datetime import datetime, timezone
+
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.storage.memory import MemoryStorage
+from asgiref.sync import sync_to_async
+from django.core.wsgi import get_wsgi_application
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -20,8 +21,7 @@ bot = Bot(token=API_TOKEN)  # Використовуємо default для нал
 dp = Dispatcher(storage=MemoryStorage())
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "Setting.settings")
 application = get_wsgi_application()
-from setting_bot.models import ModerationSettings,Chats, ActionLog, User, Message
-from django.apps import apps
+from setting_bot.models import ModerationSettings,Chats, ChatUser, Message, ActionLog, ChatMembership
 
 WHITE_LIST_THRESHOLD = 15  # Мінімальна кількість повідомлень
 
@@ -113,13 +113,16 @@ def get_whitelisted_users(chat_id):
     """Отримуємо список користувачів, які досягли порогу повідомлень для білого списку"""
     chat = Chats.objects.get(chat_id=chat_id)
 
-    # Фільтруємо користувачів за лічильником повідомлень
-    whitelisted_users = User.objects.filter(
-        chats_names=chat,
+    # Фільтруємо участі в чаті з message_count >= порогу
+    whitelisted_memberships = ChatMembership.objects.filter(
+        chat=chat,
         message_count__gte=WHITE_LIST_THRESHOLD
-    ).values_list("user_id", flat=True)
+    ).select_related('user')
 
-    return set(whitelisted_users)
+    # Отримуємо user_id користувачів
+    whitelisted_user_ids = whitelisted_memberships.values_list('user__user_id', flat=True)
+
+    return set(whitelisted_user_ids)
 
 
 @sync_to_async
@@ -128,24 +131,28 @@ def increment_message_count(user_id: int, chat_id: int, name: str):
     # Отримуємо або створюємо об'єкт чату
     chat = Chats.objects.get(chat_id=chat_id)
 
-    # Отримуємо або створюємо запис користувача у чаті
-    user, created = User.objects.get_or_create(
+    # Отримуємо або створюємо користувача
+    user, _ = ChatUser.objects.get_or_create(
         user_id=user_id,
-        chats_names=chat,
+        defaults={'first_name': name}
+    )
+
+    # Отримуємо або створюємо зв’язок користувача з чатом
+    membership, _ = ChatMembership.objects.get_or_create(
+        user=user,
+        chat=chat,
         defaults={
-            'first_name': name,
             'message_count': 0,
-            'last_message_date': datetime.now(timezone.utc)
+            'last_message_date': datetime.now(timezone.utc),
+            'status': 'Активний'
         }
     )
 
     # Збільшуємо лічильник на 1
-    user.message_count += 1
+    membership.message_count += 1
 
     # Оновлюємо час останнього повідомлення
-    user.last_message_date = datetime.now(timezone.utc)
+    membership.last_message_date = datetime.now(timezone.utc)
 
     # Зберігаємо зміни
-    user.save()
-
-
+    membership.save()

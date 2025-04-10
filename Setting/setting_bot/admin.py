@@ -42,7 +42,6 @@ class ModerationSettingsAdmin(admin.ModelAdmin):
 
 
 
-admin.site.register(Chats)
 
 
 class MuteUserInlineForm(forms.Form):
@@ -58,7 +57,7 @@ class ActionLogAdmin(admin.ModelAdmin):
         "created_at", "username", "first_name", "action_type", "chat_name", "user_link", "message", "info",
         'mute_duration_field'
     )
-    list_filter = ("action_type", "created_at", "chats_names")
+    list_filter = ("action_type", "created_at", "chat")
     search_fields = ("username", "user_id", "message", "info")
     ordering = ("-created_at",)
 
@@ -66,100 +65,89 @@ class ActionLogAdmin(admin.ModelAdmin):
 
     def user_link(self, obj):
         try:
-            user = User.objects.get(user_id=obj.user_id)
-            url = reverse("admin:setting_bot_user_change", args=[user.id])
+            user = ChatUser.objects.get(user_id=obj.user_id)
+            url = reverse("admin:setting_bot_chatuser_change", args=[user.id])
             return format_html('<a href="{}">{}</a>', url, obj.user_id)
-        except User.DoesNotExist:
+        except ChatUser.DoesNotExist:
             return obj.user_id
     user_link.short_description = "User ID"
 
-    # Поле для введення тривалості мутації
     def mute_duration_field(self, obj):
-        form = MuteUserInlineForm(initial={'mute_duration': 5})  # Встановлюємо стандартне значення
+        form = MuteUserInlineForm(initial={'mute_duration': 5})
         return form.as_p()
-
     mute_duration_field.short_description = 'Тривалість мутації'
 
-    # Метод для блокування користувачів
     def ban_user(self, request, queryset):
         for log in queryset:
             try:
-                user = User.objects.get(user_id=log.user_id)
-            except User.DoesNotExist:
-                continue  # Якщо користувача не знайдено, пропускаємо
-            if user:
-                asyncio.run(user.ban())
-                ActionLog.objects.create(
-                    chats_names=user.chats_names,
-                    user_id=user.user_id,
-                    action_type="user_banned",
-                    info=f"Заблоковано користувача {user.first_name} ({user.user_id})",
-                )
-                ban_user_telegram(user.chats_names.chat_id, user.user_id)
-
+                user = ChatUser.objects.get(user_id=log.user_id)
+                membership = ChatMembership.objects.get(user=user, chat=log.chat)
+            except (ChatUser.DoesNotExist, ChatMembership.DoesNotExist):
+                continue
+            asyncio.run(membership.ban())
+            ActionLog.objects.create(
+                chat=log.chat,
+                user_id=user.user_id,
+                action_type="user_banned",
+                info=f"Заблоковано користувача {user.first_name} ({user.user_id})",
+            )
+            ban_user_telegram(log.chat.chat_id, user.user_id)
     ban_user.short_description = "Заблокувати користувачів"
 
-    # Метод для розблокування користувачів
     def unban_user(self, request, queryset):
         for log in queryset:
             try:
-                user = User.objects.get(user_id=log.user_id)
-            except User.DoesNotExist:
-                continue  # Якщо користувача не знайдено, пропускаємо
-            if user:
-                asyncio.run(user.unban())
-                ActionLog.objects.create(
-                    chats_names=user.chats_names,
-                    user_id=user.user_id,
-                    action_type="user_unbanned",
-                    info=f"Розблоковано користувача {user.first_name} ({user.user_id})",
-                )
-                unban_user_telegram(user.chats_names.chat_id, user.user_id)
-
+                user = ChatUser.objects.get(user_id=log.user_id)
+                membership = ChatMembership.objects.get(user=user, chat=log.chat)
+            except (ChatUser.DoesNotExist, ChatMembership.DoesNotExist):
+                continue
+            asyncio.run(membership.unban())
+            ActionLog.objects.create(
+                chat=log.chat,
+                user_id=user.user_id,
+                action_type="user_unbanned",
+                info=f"Розблоковано користувача {user.first_name} ({user.user_id})",
+            )
+            unban_user_telegram(log.chat.chat_id, user.user_id)
     unban_user.short_description = "Розблокувати користувачів"
 
-    # Метод для мутації користувачів
     def mute_user(self, request, queryset):
         mute_duration = request.POST.get('mute_duration', None)
         if mute_duration:
             mute_duration = timedelta(minutes=int(mute_duration))
             for log in queryset:
                 try:
-                    user = User.objects.get(user_id=log.user_id)
-                except User.DoesNotExist:
-                    continue  # Якщо користувача не знайдено, пропускаємо
-            if user:
-                asyncio.run(user.mute(mute_duration))
+                    user = ChatUser.objects.get(user_id=log.user_id)
+                    membership = ChatMembership.objects.get(user=user, chat=log.chat)
+                except (ChatUser.DoesNotExist, ChatMembership.DoesNotExist):
+                    continue
+                asyncio.run(membership.mute(mute_duration))
                 ActionLog.objects.create(
-                    chats_names=user.chats_names,
+                    chat=log.chat,
                     user_id=user.user_id,
                     action_type="user_muted",
-                    info=f"Замучено користувача {user.first_name} ({user.user_id}) до {user.mute_until}",
+                    info=f"Замучено користувача {user.first_name} ({user.user_id}) до {membership.mute_until}",
                 )
-                mute_user_telegram(user.chats_names.chat_id, user.user_id, mute_duration)
-
+                mute_user_telegram(log.chat.chat_id, user.user_id, mute_duration)
     mute_user.short_description = "Замутити користувачів"
 
-    # Метод для розмутації користувачів
     def unmute_user(self, request, queryset):
         for log in queryset:
             try:
-                user = User.objects.get(user_id=log.user_id)
-            except User.DoesNotExist:
-                continue  # Якщо користувача не знайдено, пропускаємо
-            if user:
-                asyncio.run(user.unmute())
-                ActionLog.objects.create(
-                    chats_names=log.chats_names,
-                    user_id=user.user_id,
-                    action_type="user_unmuted",
-                    info=f"Розмучено користувача {user.first_name} ({user.user_id})",
-                )
-                unmute_user_telegram(log.chats_names.chat_id, user.user_id)
-
+                user = ChatUser.objects.get(user_id=log.user_id)
+                membership = ChatMembership.objects.get(user=user, chat=log.chat)
+            except (ChatUser.DoesNotExist, ChatMembership.DoesNotExist):
+                continue
+            asyncio.run(membership.unmute())
+            ActionLog.objects.create(
+                chat=log.chat,
+                user_id=user.user_id,
+                action_type="user_unmuted",
+                info=f"Розмучено користувача {user.first_name} ({user.user_id})",
+            )
+            unmute_user_telegram(log.chat.chat_id, user.user_id)
     unmute_user.short_description = "Розмутити користувачів"
 
-    # Експортуємо в CSV
     def export_as_csv(self, request, queryset):
         response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
         response["Content-Disposition"] = 'attachment; filename="action_logs.csv"'
@@ -169,152 +157,157 @@ class ActionLogAdmin(admin.ModelAdmin):
         for log in queryset.iterator():
             message_text = log.message.message_text if log.message else "Без тексту"
             info = log.info if log.info else "Без додаткової інформації"
-            writer.writerow(
-                [log.created_at, log.chats_names, log.user_id, log.username, log.action_type, message_text, info])
-
+            writer.writerow([log.created_at, log.chats_names, log.user_id, log.username, log.action_type, message_text, info])
         return response
-
     export_as_csv.short_description = "Експортувати у CSV"
 
-    # Експортуємо в JSON
     def export_as_json(self, request, queryset):
         response = HttpResponse(content_type="application/json")
         response["Content-Disposition"] = 'attachment; filename="action_logs.json"'
-
         logs = list(queryset.values("created_at", "chat_name", "user_id", "username", "action_type", "message", "info"))
-
         for log in logs:
             log["created_at"] = log["created_at"].isoformat()
             log["message_text"] = log["message"]["message_text"] if log["message"] else "Без тексту"
             log["info"] = log["info"] if log["info"] else "Без додаткової інформації"
-
         response.write(json.dumps(logs, ensure_ascii=False, indent=4))
         return response
-
     export_as_json.short_description = "Експортувати у JSON"
 
-    # Видалити старі логи
     def delete_old_logs(self, request, queryset):
         delete_before = now() - timedelta(days=30)
         old_logs = queryset.filter(created_at__lt=delete_before)
         deleted_count, _ = old_logs.delete()
         self.message_user(request, f"Видалено {deleted_count} старих логів.")
-
     delete_old_logs.short_description = "Видалити логи старші за 30 днів"
 
     def chat_name(self, obj):
-        return obj.chats_names.name if obj.chats_names else "Без чату"
-
+        return obj.chat.name if obj.chat else "Без чату"
     chat_name.short_description = "Назва чату"
 
     def info(self, obj):
         return obj.info if obj.info else "Без додаткової інформації"
-
     info.short_description = "Інформація"
-
 
 admin.site.register(ActionLog, ActionLogAdmin)
 
+class ChatMembershipInline(admin.TabularInline):
+    model = ChatMembership
+    extra = 0
+    readonly_fields = (
+        'chat', 'status', 'is_banned', 'is_muted', 'mute_count',
+        'mute_until', 'message_count', 'last_message_date'
+    )
+    can_delete = False
+    show_change_link = False
 
 
-
-# Форма для введення тривалості мутації
-
-
-
-class UserAdmin(admin.ModelAdmin):
+@admin.register(ChatUser)
+class ChatUserAdmin(admin.ModelAdmin):
     list_display = (
-        "username", 'first_name', "chat_name", 'get_status', 'mute_count', 'is_banned',
-        'is_muted', 'mute_duration_field', 'message_count_link', 'action_log_link'
+        "username", "first_name", "get_chats", 'get_status_display',
+        'total_mute_count', 'total_message_count', 'message_count_link', 'action_log_link'
     )
     actions = ['ban_user', 'unban_user', 'mute_user', 'unmute_user']
-    list_filter = ('is_banned', 'is_muted', 'chats_names')
-    search_fields = ('first_name', 'user_id', 'chats_names__name')
-    ordering = ('-last_message_date',)
+    search_fields = ('first_name', 'user_id', 'username')
+    inlines = [ChatMembershipInline]
 
-    # Поле для введення тривалості мутації
-    def mute_duration_field(self, obj):
-        form = MuteUserInlineForm(initial={'mute_duration': 5})
-        return form.as_p()
+    def get_chats(self, obj):
+        return ", ".join([m.chat.name for m in ChatMembership.objects.filter(user=obj)])
+    get_chats.short_description = "Чати"
 
-    mute_duration_field.short_description = 'Тривалість мутації'
+    def get_status_display(self, obj):
+        statuses = []
+        for m in ChatMembership.objects.filter(user=obj):
+            statuses.append(f"{m.chat.name}: {m.get_status()}")
+        return format_html("<br>".join(statuses))
+    get_status_display.short_description = "Статуси"
 
-    # Посилання на фільтровані повідомлення
+    def total_mute_count(self, obj):
+        return sum(m.mute_count for m in ChatMembership.objects.filter(user=obj))
+    total_mute_count.short_description = "Кількість мутів"
+
+    def total_message_count(self, obj):
+        return sum(m.message_count for m in ChatMembership.objects.filter(user=obj))
+    total_message_count.short_description = "Повідомлень загалом"
+
     def message_count_link(self, obj):
         url = reverse('admin:setting_bot_message_changelist') + f'?user_id={obj.user_id}'
-        return format_html('<a href="{}">{}</a>', url, obj.message_count)
-    message_count_link.short_description = 'Кількість повідомлень'
-    message_count_link.admin_order_field = 'message_count'
+        total = self.total_message_count(obj)
+        return format_html('<a href="{}">{}</a>', url, total)
+    message_count_link.short_description = "Повідомлення"
 
-    # Посилання на ActionLog
     def action_log_link(self, obj):
         url = reverse('admin:setting_bot_actionlog_changelist') + f'?user_id={obj.user_id}'
-        return format_html('<a href="{}">Переглянути дії</a>', url)
-    action_log_link.short_description = 'Логи дій'
+        return format_html('<a href="{}">Логи</a>', url)
+    action_log_link.short_description = 'Дії'
 
-    # Відображення статусу користувача
-    def get_status(self, obj):
-        return "Заблоковано" if obj.is_banned else "Активний"
-    get_status.short_description = 'Статус'
-
-
-    # Дії з користувачами
     def ban_user(self, request, queryset):
         for user in queryset:
-            asyncio.run(user.ban())
-            ActionLog.objects.create(
-                chats_names=user.chats_names,
-                user_id=user.user_id,
-                action_type="user_banned",
-                info=f"Заблоковано користувача {user.first_name} ({user.user_id})",
-            )
-            ban_user_telegram(user.chats_names.chat_id, user.user_id)
-    ban_user.short_description = "Заблокувати користувачів"
+            for m in ChatMembership.objects.filter(user=user):
+                asyncio.run(m.ban())
+                ActionLog.objects.create(
+                    chat=m.chat,
+                    user_id=user.user_id,
+                    action_type="user_banned",
+                    info=f"Заблоковано користувача {user.first_name} ({user.user_id})",
+                )
+                ban_user_telegram(m.chat.chat_id, user.user_id)
+    ban_user.short_description = "Заблокувати користувача"
 
     def unban_user(self, request, queryset):
         for user in queryset:
-            asyncio.run(user.unban())
-            ActionLog.objects.create(
-                chats_names=user.chats_names,
-                user_id=user.user_id,
-                action_type="user_unbanned",
-                info=f"Розблоковано користувача {user.first_name} ({user.user_id})",
-            )
-            unban_user_telegram(user.chats_names.chat_id, user.user_id)
-    unban_user.short_description = "Розблокувати користувачів"
+            for m in ChatMembership.objects.filter(user=user):
+                asyncio.run(m.unban())
+                ActionLog.objects.create(
+                    chat=m.chat,
+                    user_id=user.user_id,
+                    action_type="user_unbanned",
+                    info=f"Розблоковано користувача {user.first_name} ({user.user_id})",
+                )
+                unban_user_telegram(m.chat.chat_id, user.user_id)
+    unban_user.short_description = "Розблокувати користувача"
 
     def mute_user(self, request, queryset):
-        mute_duration = request.POST.get('mute_duration', None)
-        if mute_duration:
-            mute_duration = timedelta(minutes=int(mute_duration))
-            for user in queryset:
-                asyncio.run(user.mute(mute_duration))
+        mute_duration = request.POST.get('mute_duration', 5)  # default 5 хвилин
+        mute_duration = timedelta(minutes=int(mute_duration))
+        for user in queryset:
+            for m in ChatMembership.objects.filter(user=user):
+                asyncio.run(m.mute(mute_duration))
                 ActionLog.objects.create(
-                    chats_names=user.chats_names,
+                    chat=m.chat,
                     user_id=user.user_id,
                     action_type="user_muted",
-                    info=f"Замучено користувача {user.first_name} ({user.user_id}) до {user.mute_until}",
+                    info=f"Замучено користувача {user.first_name} ({user.user_id}) до {m.mute_until}",
                 )
-                mute_user_telegram(user.chats_names.chat_id, user.user_id, mute_duration)
-    mute_user.short_description = "Замутити користувачів"
+                mute_user_telegram(m.chat.chat_id, user.user_id, mute_duration)
+    mute_user.short_description = "Замутити користувача"
 
     def unmute_user(self, request, queryset):
         for user in queryset:
-            asyncio.run(user.unmute())
-            ActionLog.objects.create(
-                chats_names=user.chats_names,
-                user_id=user.user_id,
-                action_type="user_unmuted",
-                info=f"Розмучено користувача {user.first_name} ({user.user_id})",
-            )
-            unmute_user_telegram(user.chats_names.chat_id, user.user_id)
-    unmute_user.short_description = "Розмутити користувачів"
+            for m in ChatMembership.objects.filter(user=user):
+                asyncio.run(m.unmute())
+                ActionLog.objects.create(
+                    chat=m.chat,
+                    user_id=user.user_id,
+                    action_type="user_unmuted",
+                    info=f"Розмучено користувача {user.first_name} ({user.user_id})",
+                )
+                unmute_user_telegram(m.chat.chat_id, user.user_id)
+    unmute_user.short_description = "Розмутити користувача"
 
-    def chat_name(self, obj):
-        return obj.chats_names.name if obj.chats_names else "Без чату"
-    chat_name.short_description = "Назва чату"
 
-admin.site.register(User, UserAdmin)
+@admin.register(ChatMembership)
+class ChatMembershipAdmin(admin.ModelAdmin):
+    list_display = ('user', 'chat', 'status', 'is_banned', 'is_muted', 'mute_count', 'mute_until', 'message_count', 'last_message_date')
+    search_fields = ('user__username', 'chat__name')
+    list_filter = ('is_banned', 'is_muted', 'chat__name')
+    ordering = ['-last_message_date']
+
+
+@admin.register(Chats)
+class ChatsAdmin(admin.ModelAdmin):
+    list_display = ('name', 'chat_id')
+    search_fields = ('name', 'chat_id')
 
 
 
@@ -337,98 +330,87 @@ class MessageAdmin(admin.ModelAdmin):
     chat_name.short_description = "Назва чату"
 
     def user_link(self, obj):
-        user = User.objects.filter(user_id=obj.user_id).first()
+        user = ChatUser.objects.filter(user_id=obj.user_id).first()
         if user:
-            url = reverse("admin:setting_bot_user_change", args=[user.id])  # Замініть 'appname' на своє ім'я додатку
+            url = reverse("admin:setting_bot_chatuser_change", args=[user.id])
             return format_html('<a href="{}">{}</a>', url, obj.user_id)
         return obj.user_id
     user_link.short_description = "User ID"
 
     def mute_duration_field(self, obj):
-        form = MuteUserInlineForm(initial={'mute_duration': 5})  # Встановлюємо стандартне значення
+        form = MuteUserInlineForm(initial={'mute_duration': 5})
         return form.as_p()
     mute_duration_field.short_description = 'Тривалість мутації'
 
-    # Метод для блокування користувачів
+    def get_membership(self, user_id, chat):
+        user = ChatUser.objects.filter(user_id=user_id).first()
+        if not user:
+            return None
+        return ChatMembership.objects.filter(user=user, chat=chat).first()
+
     def ban_user(self, request, queryset):
         for message in queryset:
-            try:
-                user = User.objects.get(user_id=message.user_id)
-            except User.DoesNotExist:
-                continue  # Якщо користувача не знайдено, пропускаємо
-            if user:
-                asyncio.run(user.ban())
+            membership = self.get_membership(message.user_id, message.chats_names)
+            if membership:
+                asyncio.run(membership.ban())
                 ActionLog.objects.create(
-                    chats_names=user.chats_names,
-                    user_id=user.user_id,
+                    chats_names=message.chats_names,
+                    user_id=message.user_id,
                     action_type="user_banned",
-                    info=f"Заблоковано користувача {user.first_name} ({user.user_id})",
+                    info=f"Заблоковано користувача ({message.user_id})"
                 )
-                ban_user_telegram(user.chats_names.chat_id, user.user_id)
+                ban_user_telegram(message.chats_names.chat_id, message.user_id)
 
     ban_user.short_description = "Заблокувати користувачів"
 
-    # Метод для розблокування користувачів
     def unban_user(self, request, queryset):
         for message in queryset:
-            try:
-                user = User.objects.get(user_id=message.user_id)
-            except User.DoesNotExist:
-                continue  # Якщо користувача не знайдено, пропускаємо
-            if user:
-                asyncio.run(user.unban())
+            membership = self.get_membership(message.user_id, message.chats_names)
+            if membership:
+                asyncio.run(membership.unban())
                 ActionLog.objects.create(
-                    chats_names=user.chats_names,
-                    user_id=user.user_id,
+                    chats_names=message.chats_names,
+                    user_id=message.user_id,
                     action_type="user_unbanned",
-                    info=f"Розблоковано користувача {user.first_name} ({user.user_id})",
+                    info=f"Розблоковано користувача ({message.user_id})"
                 )
-                unban_user_telegram(user.chats_names.chat_id, user.user_id)
+                unban_user_telegram(message.chats_names.chat_id, message.user_id)
 
     unban_user.short_description = "Розблокувати користувачів"
 
-    # Метод для мутації користувачів
     def mute_user(self, request, queryset):
-        mute_duration = request.POST.get('mute_duration', None)
-        if mute_duration:
-            mute_duration = timedelta(minutes=int(mute_duration))
+        mute_duration_minutes = request.POST.get('mute_duration')
+        if mute_duration_minutes:
+            mute_duration = timedelta(minutes=int(mute_duration_minutes))
             for message in queryset:
-                try:
-                    user = User.objects.get(user_id=message.user_id)
-                except User.DoesNotExist:
-                    continue  # Якщо користувача не знайдено, пропускаємо
-            if user:
-                asyncio.run(user.mute(mute_duration))
-                ActionLog.objects.create(
-                    chats_names=user.chats_names,
-                    user_id=user.user_id,
-                    action_type="user_muted",
-                    info=f"Замучено користувача {user.first_name} ({user.user_id}) до {user.mute_until}",
-                )
-                mute_user_telegram(user.chats_names.chat_id, user.user_id, mute_duration)
+                membership = self.get_membership(message.user_id, message.chats_names)
+                if membership:
+                    asyncio.run(membership.mute(mute_duration))
+                    ActionLog.objects.create(
+                        chats_names=message.chats_names,
+                        user_id=message.user_id,
+                        action_type="user_muted",
+                        info=f"Замучено до {membership.mute_until}"
+                    )
+                    mute_user_telegram(message.chats_names.chat_id, message.user_id, mute_duration)
 
     mute_user.short_description = "Замутити користувачів"
 
-    # Метод для розмутації користувачів
     def unmute_user(self, request, queryset):
         for message in queryset:
-            try:
-                user = User.objects.get(user_id=message.user_id)
-            except User.DoesNotExist:
-                continue  # Якщо користувача не знайдено, пропускаємо
-            if user:
-                asyncio.run(user.unmute())
+            membership = self.get_membership(message.user_id, message.chats_names)
+            if membership:
+                asyncio.run(membership.unmute())
                 ActionLog.objects.create(
                     chats_names=message.chats_names,
-                    user_id=user.user_id,
+                    user_id=message.user_id,
                     action_type="user_unmuted",
-                    info=f"Розмучено користувача {user.first_name} ({user.user_id})",
+                    info=f"Розмучено користувача ({message.user_id})"
                 )
-                unmute_user_telegram(message.chats_names.chat_id, user.user_id)
+                unmute_user_telegram(message.chats_names.chat_id, message.user_id)
 
     unmute_user.short_description = "Розмутити користувачів"
 
-    # Експортуємо в CSV
     def export_as_csv(self, request, queryset):
         response = HttpResponse(content_type="text/csv; charset=utf-8-sig")
         response["Content-Disposition"] = 'attachment; filename="message_logs.csv"'
@@ -443,7 +425,6 @@ class MessageAdmin(admin.ModelAdmin):
 
     export_as_csv.short_description = "Експортувати у CSV"
 
-    # Експортуємо в JSON
     def export_as_json(self, request, queryset):
         response = HttpResponse(content_type="application/json")
         response["Content-Disposition"] = 'attachment; filename="message_logs.json"'

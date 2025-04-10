@@ -54,13 +54,17 @@ class ModerationSettings(models.Model):
 
 class Message(models.Model):
     message_id = models.BigIntegerField(unique=True, null=True, blank=True)
-    chats_names = models.ForeignKey(Chats, on_delete=models.CASCADE)
+
+    chats_names = models.ForeignKey('Chats', on_delete=models.CASCADE)
+    membership = models.ForeignKey('ChatMembership', on_delete=models.SET_NULL, null=True, blank=True, related_name='messages')
+
     user_id = models.BigIntegerField(null=True, blank=True)  # ID відправника
     username = models.CharField(max_length=255, null=True, blank=True)  # Юзернейм відправника
     first_name = models.CharField(max_length=255, null=True, blank=True)  # Ім'я відправника
+
     timestamp = models.DateTimeField()  # Час повідомлення
     message_text = models.TextField()  # Текст повідомлення
-    action = models.CharField(max_length=50, null=True, blank=True)  # Дія з повідомленням (наприклад, "deleted", "muted", "banned")
+    action = models.CharField(max_length=50, null=True, blank=True)  # Дія (наприклад, "deleted", "muted", "banned")
 
     class Meta:
         verbose_name = "Повідомлення"
@@ -69,64 +73,72 @@ class Message(models.Model):
     def __str__(self):
         return f"Chat {self.chats_names.name} | User {self.user_id} | {self.message_text[:30]} | Action: {self.action}"
 
-
-    def chat_name(self):  # Додаємо метод
+    def chat_name(self):
         return self.chats_names.name if self.chats_names else "Без чату"
 
     chat_name.short_description = "Назва чату"
 
-class ActionLog(models.Model):
-    chats_names = models.ForeignKey(Chats, on_delete=models.CASCADE)
-    user_id = models.BigIntegerField()
-    username = models.CharField(max_length=255, null=True, blank=True)  # Юзернейм відправника
-    first_name = models.CharField(max_length=255, null=True, blank=True)  # Ім'я відправника
-    action_type = models.CharField(max_length=50)  # Наприклад: 'spam_deleted', 'user_muted'
-    message = models.TextField(
-        null=True,
-        blank=True
-    )
-    info = models.TextField(null=True, blank=True)  # Додане поле для зберігання деталей дії
-    created_at = models.DateTimeField(auto_now_add=True)
 
-    def __str__(self):
-        return f"{self.action_type} - {self.username or self.user_id} ({self.created_at})"
+class ActionLog(models.Model):
+    chat = models.ForeignKey('Chats', on_delete=models.CASCADE, related_name='actions', null=True, blank=True)
+    membership = models.ForeignKey('ChatMembership', on_delete=models.SET_NULL, null=True, blank=True, related_name='actions')
+
+    user_id = models.BigIntegerField()
+    username = models.CharField(max_length=255, null=True, blank=True)
+    first_name = models.CharField(max_length=255, null=True, blank=True)
+
+    action_type = models.CharField(max_length=50)  # Наприклад: 'spam_deleted', 'user_muted'
+    message = models.TextField(null=True, blank=True)
+    info = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Журнал дій"
         verbose_name_plural = "Журнали дій"
 
+    def __str__(self):
+        display_name = self.username or self.first_name or f"ID {self.user_id}"
+        return f"{self.action_type} - {display_name} ({self.created_at})"
 
 
 
-class User(models.Model):
-    chats_names = models.ForeignKey('Chats', on_delete=models.CASCADE)
+
+class ChatUser(models.Model):
     user_id = models.BigIntegerField(unique=True)
-    username = models.CharField(max_length=255, null=True, blank=True)  # Юзернейм відправника
-    first_name = models.CharField(max_length=255, null=True, blank=True)  # Ім'я відправника
+    username = models.CharField(max_length=255, null=True, blank=True)
+    first_name = models.CharField(max_length=255, null=True, blank=True)
+
+    chats = models.ManyToManyField('Chats', through='ChatMembership', related_name='users')
+
+    def __str__(self):
+        return f"User: {self.user_id} ({self.username})"
+
+    class Meta:
+        verbose_name = "Користувач"
+        verbose_name_plural = "Користувачі"
+
+
+class ChatMembership(models.Model):
+    user = models.ForeignKey(ChatUser, on_delete=models.CASCADE)
+    chat = models.ForeignKey(Chats, on_delete=models.CASCADE)
+
     is_banned = models.BooleanField(default=False)
     is_muted = models.BooleanField(default=False)
     mute_count = models.IntegerField(default=0)
     mute_until = models.DateTimeField(null=True, blank=True)
     banned_at = models.DateTimeField(null=True, blank=True)
-
     status = models.CharField(max_length=50, null=True, blank=True)
-
     message_count = models.IntegerField(default=0)
     last_message_date = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        unique_together = ('user_id', 'chats_names')
-        verbose_name = "Користувач"
-        verbose_name_plural = "Користувачі"
+        unique_together = ('user', 'chat')
+        verbose_name = "Участь користувача у чаті"
+        verbose_name_plural = "Участі користувачів у чатах"
         ordering = ['-last_message_date']
 
     def __str__(self):
-        return f"User: {self.user_id} in Chat: {self.chats_names.name}"
-
-    def chat_name(self):
-        return self.chats_names.name if self.chats_names else "Без чату"
-
-    chat_name.short_description = "Назва чату"
+        return f"{self.user} in {self.chat}"
 
     @sync_to_async
     def save_async(self):
@@ -162,7 +174,7 @@ class User(models.Model):
         if self.is_banned:
             return "Заблоковано"
         if self.is_muted and self.mute_until:
-            return f"Замучено до {self.mute_until.strftime('%Y-%m-%d %H:%M:%S')}"
+            return f"Замучено"
         return self.status or "Активний"
 
 
