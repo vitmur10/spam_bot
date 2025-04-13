@@ -406,7 +406,7 @@ class MessageAdmin(admin.ModelAdmin):
             if membership:
                 asyncio.run(membership.ban())
                 ActionLog.objects.create(
-                    chats_names=message.chats_names,
+                    chat=message.chats_names,
                     user_id=message.user_id,
                     action_type="user_banned",
                     info=f"Заблоковано користувача ({message.user_id})"
@@ -421,7 +421,7 @@ class MessageAdmin(admin.ModelAdmin):
             if membership:
                 asyncio.run(membership.unban())
                 ActionLog.objects.create(
-                    chats_names=message.chats_names,
+                    chat=message.chats_names,
                     user_id=message.user_id,
                     action_type="user_unbanned",
                     info=f"Розблоковано користувача ({message.user_id})"
@@ -439,7 +439,7 @@ class MessageAdmin(admin.ModelAdmin):
                 if membership:
                     asyncio.run(membership.mute(mute_duration))
                     ActionLog.objects.create(
-                        chats_names=message.chats_names,
+                        chat=message.chats_names,
                         user_id=message.user_id,
                         action_type="user_muted",
                         info=f"Замучено до {membership.mute_until}"
@@ -454,7 +454,7 @@ class MessageAdmin(admin.ModelAdmin):
             if membership:
                 asyncio.run(membership.unmute())
                 ActionLog.objects.create(
-                    chats_names=message.chats_names,
+                    chat=message.chats_names,
                     user_id=message.user_id,
                     action_type="user_unmuted",
                     info=f"Розмучено користувача ({message.user_id})"

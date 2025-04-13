@@ -1,7 +1,7 @@
 import os
 import re
 from datetime import datetime, timezone
-
+import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -25,6 +25,14 @@ application = get_wsgi_application()
 from setting_bot.models import ModerationSettings,Chats, ChatUser, Message, ActionLog, ChatMembership
 
 WHITE_LIST_THRESHOLD = 15  # Мінімальна кількість повідомлень
+
+# Налаштування логера
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 @sync_to_async
 def get_existing_message(message_id):

@@ -182,8 +182,6 @@ async def get_chat_id(message: types.Message):
     return
 
 
-
-
 @router.edited_message(IsChatAllowed())
 @router.message(IsChatAllowed())
 async def filter_spam(message: Message, bot: Bot):
@@ -193,307 +191,324 @@ async def filter_spam(message: Message, bot: Bot):
     chat_id = message.chat.id
     text = message.text if message.text else ""
 
-    existing_message = await get_existing_message(message.message_id)
-    if existing_message:
-        old_text = existing_message.message_text
-        new_text = message.text
-        if old_text != new_text:
-            await update_message(existing_message, new_text)
-            return
+    logger.info(f"Received message from user {user_id} ({first_name}, @{username}) in chat {chat_id}.")
 
-    await add_user(chat_id, user_id,first_name, username)
-    whitelisted_users = await get_whitelisted_users(chat_id)
-
-    if user_id in whitelisted_users:
-        await save_message(message.message_id, chat_id, user_id, username, first_name, text)
-        return
-
-    settings = await get_moderation_settings()
-    if settings:
-        BAD_WORDS_MUTE = settings.get("BAD_WORDS_MUTE", [])
-        BAD_WORDS_MUTE = flatten_and_join(BAD_WORDS_MUTE)
-
-        BAD_WORDS_KICK = settings.get("BAD_WORDS_KICK", [])
-        BAD_WORDS_KICK = flatten_and_join(BAD_WORDS_KICK)
-
-        BAD_WORDS_BAN = settings.get("BAD_WORDS_BAN", [])
-        BAD_WORDS_BAN = flatten_and_join(BAD_WORDS_BAN)
-
-        MAX_MENTIONS = settings.get("MAX_MENTIONS", [0])[0]
-        MAX_EMOJIS = settings.get("MAX_EMOJIS", [0])[0]
-        MIN_CAPS_LENGTH = settings.get("MIN_CAPS_LENGTH", [0])[0]
-        MUTE_TIME = settings.get("MUTE_TIME", [0])[0]
-        DELETE_LINKS = settings.get("DELETE_LINKS", [False])[0]
-        DELETE_AUDIO = settings.get("DELETE_AUDIO", [False])[0]
-        DELETE_VIDEO = settings.get("DELETE_VIDEO", [False])[0]
-        DELETE_VIDEO_NOTES = settings.get("DELETE_VIDEO_NOTES", [False])[0]
-        DELETE_STICKERS = settings.get("DELETE_STICKERS", [False])[0]
-        DELETE_EMOJIS = settings.get("DELETE_EMOJIS", [False])[0]
-        DELETE_CHINESE = settings.get("DELETE_CHINESE", [False])[0]
-        DELETE_RTL = settings.get("DELETE_RTL", [False])[0]
-        DELETE_EMAILS = settings.get("DELETE_EMAILS", [False])[0]
-        DELETE_REFERRAL_LINKS = settings.get("DELETE_REFERRAL_LINKS", [False])[0]
-
-        EMOJI_LIST = settings.get("EMOJI_LIST", [])
-        EMOJI_LIST = flatten_and_join(EMOJI_LIST)
-        flattened_emoji_list = [emoji for emojis in EMOJI_LIST for emoji in emojis]
-    text = re.sub(r"[^\w\s]", "", (message.text or message.caption or "").lower())
-    chat = await sync_to_async(Chats.objects.get)(chat_id=chat_id)
-    # Коли користувач отримує мут
-    if any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_MUTE):
-        await bot.delete_message(chat_id, message.message_id)
-        mute_end_time = datetime.now() + timedelta(minutes=MUTE_TIME)
-        time_diff = mute_end_time - datetime.now()
-
-        user, created = await sync_to_async(ChatUser.objects.get_or_create)(user_id=user_id, defaults={
-            "username": username,
-            "first_name": first_name,
-        })
-
-        # Всі чати, в яких є цей користувач
-        memberships = await sync_to_async(list)(
-            ChatMembership.objects.select_related("chat").filter(user=user)
-        )
-
-        # Замучити користувача у кожному чаті
-        for membership in memberships:
-            await membership.mute(mute_duration=time_diff)
-
-            try:
-                await bot.restrict_chat_member(
-                    membership.chat.chat_id,
-                    user_id,
-                    permissions=ChatPermissions(can_send_messages=False),
-                    until_date=mute_end_time,
-                )
-            except Exception as e:
-                print(f"Не вдалося замутити в чаті {membership.chat.chat_id}: {e}")
-
-        matched_word = next((word for word in BAD_WORDS_MUTE if word.lower() in text), None)
-
-        await log_action(
-            chat_id,
-            user_id,
-            username,
-            first_name,
-            "spam_deleted",
-            f"Користувач був замучений БОТОМ у всіх чатах за слово '{matched_word}' до {mute_end_time.strftime('%Y-%m-%d %H:%M:%S')}.",
-            text,
-        )
-        return
-    # Коли користувач отримує кік
-    elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_KICK):
-        await bot.delete_message(chat_id, message.message_id)
-        await bot.ban_chat_member(chat_id, user_id)
-        await bot.unban_chat_member(chat_id, user_id)
-
-        user, created = await sync_to_async(ChatUser.objects.get_or_create)(user_id=user_id, chats_names=chat)
-
-        matched_word = next((word for word in BAD_WORDS_KICK if re.sub(r"[^\w\s]", "", word).lower() in text), None)
-
-        await log_action(
-            chat_id, user_id, username,first_name, "spam_deleted",
-            f"Kicked by bot for bad word: '{matched_word}'",
-            text
-        )
-        return
-
-    # Коли користувач отримує бан
-    elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_BAN):
-        await bot.delete_message(chat_id, message.message_id)
-        ban_end_time = now() + timedelta(minutes=10)
-
-        user, _ = await sync_to_async(ChatUser.objects.get_or_create)(user_id=user_id, defaults={
-            "username": username,
-            "first_name": first_name,
-        })
-
-        memberships = await sync_to_async(list)(
-            ChatMembership.objects.select_related("chat").filter(user=user)
-        )
-
-        for membership in memberships:
-            await membership.ban()
-            try:
-                await bot.ban_chat_member(
-                    membership.chat.chat_id,
-                    user_id,
-                    until_date=ban_end_time
-                )
-            except Exception as e:
-                print(f"❌ Не вдалося забанити в чаті {membership.chat.chat_id}: {e}")
-
-        matched_word = next((word for word in BAD_WORDS_BAN if re.sub(r"[^\w\s]", "", word).lower() in text), None)
-
-        await log_action(
-            chat_id,
-            user_id,
-            username,
-            first_name,
-            "spam_deleted",
-            f"Користувач був забанений БОТОМ у всіх чатах за слово: '{matched_word}'",
-            text
-        )
-        return
-    if message.reply_markup:
-        # Якщо в повідомленні є кнопки, видаляти його
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Deleted message with button",
-                         text)
-        return
-    if message.text:
-        if URL_PATTERN.search(message.text) and DELETE_LINKS:
-            await bot.delete_message(chat_id, message.message_id)
-            await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Deleted link", text)
-            return
-
-    if text.count("@") >= MAX_MENTIONS:
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Too many mentions", text)
-        return
     try:
-        emoji_count = sum(1 for char in message.text if char in flattened_emoji_list)
-    except TypeError:
-        return
-    # Перевірка на кількість емодзі
-    if emoji_count >= MAX_EMOJIS and DELETE_EMOJIS:
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Too many emojis", text)
-        return
+        existing_message = await get_existing_message(message.message_id)
+        if existing_message:
+            old_text = existing_message.message_text
+            new_text = message.text
+            if old_text != new_text:
+                await update_message(existing_message, new_text)
+                logger.info(f"Message {message.message_id} updated with new text.")
+                return
 
-    caps_text = sum(1 for char in text if char.isupper())
-    if caps_text >= MIN_CAPS_LENGTH and caps_text > len(text) * 0.7:
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Excessive capitalization", text)
-        return
+        await add_user(chat_id, user_id, first_name, username)
+        whitelisted_users = await get_whitelisted_users(chat_id)
 
-    elif message.audio and DELETE_AUDIO:
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Audio message deleted", text)
-        return
+        if user_id in whitelisted_users:
+            await save_message(message.message_id, chat_id, user_id, username, first_name, text)
+            logger.info(f"User {user_id} is whitelisted. Message saved.")
+            return
 
-    elif message.video and DELETE_VIDEO:
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Video message deleted", text)
-        return
+        settings = await get_moderation_settings()
+        if settings:
+            BAD_WORDS_MUTE = settings.get("BAD_WORDS_MUTE", [])
+            BAD_WORDS_MUTE = flatten_and_join(BAD_WORDS_MUTE)
 
-    elif message.video_note and DELETE_VIDEO_NOTES:
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Video note deleted", text)
-        return
+            BAD_WORDS_KICK = settings.get("BAD_WORDS_KICK", [])
+            BAD_WORDS_KICK = flatten_and_join(BAD_WORDS_KICK)
 
-    elif message.sticker and DELETE_STICKERS:
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Sticker deleted", text)
-        return
+            BAD_WORDS_BAN = settings.get("BAD_WORDS_BAN", [])
+            BAD_WORDS_BAN = flatten_and_join(BAD_WORDS_BAN)
 
-    elif DELETE_CHINESE and any("\u4e00" <= char <= "\u9fff" for char in message.text):
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Chinese characters deleted", text)
-        return
+            MAX_MENTIONS = settings.get("MAX_MENTIONS", [0])[0]
+            MAX_EMOJIS = settings.get("MAX_EMOJIS", [0])[0]
+            MIN_CAPS_LENGTH = settings.get("MIN_CAPS_LENGTH", [0])[0]
+            MUTE_TIME = settings.get("MUTE_TIME", [0])[0]
+            DELETE_LINKS = settings.get("DELETE_LINKS", [False])[0]
+            DELETE_AUDIO = settings.get("DELETE_AUDIO", [False])[0]
+            DELETE_VIDEO = settings.get("DELETE_VIDEO", [False])[0]
+            DELETE_VIDEO_NOTES = settings.get("DELETE_VIDEO_NOTES", [False])[0]
+            DELETE_STICKERS = settings.get("DELETE_STICKERS", [False])[0]
+            DELETE_EMOJIS = settings.get("DELETE_EMOJIS", [False])[0]
+            DELETE_CHINESE = settings.get("DELETE_CHINESE", [False])[0]
+            DELETE_RTL = settings.get("DELETE_RTL", [False])[0]
+            DELETE_EMAILS = settings.get("DELETE_EMAILS", [False])[0]
+            DELETE_REFERRAL_LINKS = settings.get("DELETE_REFERRAL_LINKS", [False])[0]
 
-    elif DELETE_RTL and any("\u0590" <= char <= "\u08ff" for char in message.text):
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "RTL characters deleted", text)
-        return
+            EMOJI_LIST = settings.get("EMOJI_LIST", [])
+            EMOJI_LIST = flatten_and_join(EMOJI_LIST)
+            flattened_emoji_list = [emoji for emojis in EMOJI_LIST for emoji in emojis]
 
-    elif DELETE_EMAILS and re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", message.text):
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Email address deleted", text)
-        return
+        text = re.sub(r"[^\w\s]", "", (message.text or message.caption or "").lower())
+        chat = await sync_to_async(Chats.objects.get)(chat_id=chat_id)
 
-    elif DELETE_REFERRAL_LINKS and re.search(r"referral_link_pattern", message.text):
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Referral link deleted", text)
-        return
+        if any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_MUTE):
+            await bot.delete_message(chat_id, message.message_id)
+            mute_end_time = datetime.now() + timedelta(minutes=MUTE_TIME)
+            time_diff = mute_end_time - datetime.now()
 
-    elif message.forward_from:
-        await bot.delete_message(chat_id, message.message_id)
-        await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Deleted forwarded message", text)
-        return
-    await save_message(message.message_id,chat_id, user_id, username, first_name, text)
-    await increment_message_count(user_id=user_id, chat_id=chat_id, name=first_name)
+            user, created = await sync_to_async(ChatUser.objects.get_or_create)(user_id=user_id, defaults={
+                "username": username,
+                "first_name": first_name,
+            })
+
+            memberships = await sync_to_async(list)(
+                ChatMembership.objects.select_related("chat").filter(user=user)
+            )
+
+            for membership in memberships:
+                await membership.mute(mute_duration=time_diff)
+                try:
+                    await bot.restrict_chat_member(
+                        membership.chat.chat_id,
+                        user_id,
+                        permissions=ChatPermissions(can_send_messages=False),
+                        until_date=mute_end_time,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to mute user {user_id} in chat {membership.chat.chat_id}: {e}")
+
+            matched_word = next((word for word in BAD_WORDS_MUTE if word.lower() in text), None)
+
+            await log_action(
+                chat_id,
+                user_id,
+                username,
+                first_name,
+                "spam_deleted",
+                f"User muted in all chats for word '{matched_word}' until {mute_end_time.strftime('%Y-%m-%d %H:%M:%S')}.",
+                text,
+            )
+            return
+
+        elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_KICK):
+            await bot.delete_message(chat_id, message.message_id)
+            await bot.ban_chat_member(chat_id, user_id)
+            await bot.unban_chat_member(chat_id, user_id)
+
+            user, created = await sync_to_async(ChatUser.objects.get_or_create)(user_id=user_id, chats_names=chat)
+
+            matched_word = next((word for word in BAD_WORDS_KICK if re.sub(r"[^\w\s]", "", word).lower() in text), None)
+
+            await log_action(
+                chat_id, user_id, username, first_name, "spam_deleted",
+                f"Kicked by bot for bad word: '{matched_word}'",
+                text
+            )
+            return
+
+        elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_BAN):
+            await bot.delete_message(chat_id, message.message_id)
+            ban_end_time = now() + timedelta(minutes=10)
+
+            user, _ = await sync_to_async(ChatUser.objects.get_or_create)(user_id=user_id, defaults={
+                "username": username,
+                "first_name": first_name,
+            })
+
+            memberships = await sync_to_async(list)(
+                ChatMembership.objects.select_related("chat").filter(user=user)
+            )
+
+            for membership in memberships:
+                await membership.ban()
+                try:
+                    await bot.ban_chat_member(
+                        membership.chat.chat_id,
+                        user_id,
+                        until_date=ban_end_time
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to ban user {user_id} in chat {membership.chat.chat_id}: {e}")
+
+            matched_word = next((word for word in BAD_WORDS_BAN if re.sub(r"[^\w\s]", "", word).lower() in text), None)
+
+            await log_action(
+                chat_id,
+                user_id,
+                username,
+                first_name,
+                "spam_deleted",
+                f"User banned in all chats for word: '{matched_word}'",
+                text
+            )
+            return
+
+        # Additional checks for other conditions (mentions, emojis, etc.) can follow similarly
+
+        if message.reply_markup:
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Deleted message with button",
+                             text)
+            return
+
+        if message.text:
+            if URL_PATTERN.search(message.text) and DELETE_LINKS:
+                await bot.delete_message(chat_id, message.message_id)
+                await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Deleted link", text)
+                return
+
+        if text.count("@") >= MAX_MENTIONS:
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Too many mentions", text)
+            return
+
+        try:
+            emoji_count = sum(1 for char in message.text if char in flattened_emoji_list)
+        except TypeError:
+            return
+
+        if emoji_count >= MAX_EMOJIS and DELETE_EMOJIS:
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Too many emojis", text)
+            return
+
+        caps_text = sum(1 for char in text if char.isupper())
+        if caps_text >= MIN_CAPS_LENGTH and caps_text > len(text) * 0.7:
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Excessive capitalization", text)
+            return
+
+        if message.audio and DELETE_AUDIO:
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Audio message deleted", text)
+            return
+
+        if message.video and DELETE_VIDEO:
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Video message deleted", text)
+            return
+
+        if message.video_note and DELETE_VIDEO_NOTES:
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Video note deleted", text)
+            return
+
+        if message.sticker and DELETE_STICKERS:
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Sticker deleted", text)
+            return
+
+        if DELETE_CHINESE and any("\u4e00" <= char <= "\u9fff" for char in message.text):
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Chinese characters deleted", text)
+            return
+
+        if DELETE_RTL and any("\u0590" <= char <= "\u08ff" for char in message.text):
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username, first_name, "spam_deleted", "RTL characters deleted", text)
+            return
+
+        if DELETE_EMAILS and re.search(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", message.text):
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Email address deleted", text)
+            return
+
+        if DELETE_REFERRAL_LINKS and re.search(r"referral_link_pattern", message.text):
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Referral link deleted", text)
+            return
+
+        if message.forward_from:
+            await bot.delete_message(chat_id, message.message_id)
+            await log_action(chat_id, user_id, username, first_name, "spam_deleted", "Deleted forwarded message", text)
+            return
+
+        # Final message saving
+        await save_message(message.message_id, chat_id, user_id, username, first_name, text)
+        await increment_message_count(user_id=user_id, chat_id=chat_id, name=first_name)
+        logger.info(f"Message {message.message_id} saved.")
+
+    except Exception as e:
+        logger.error(f"Error processing message {message.message_id}: {e}")
 
 
 @router.chat_member()
 async def track_admin_actions(update: ChatMemberUpdated):
-    initiator = update.from_user  # Користувач, який здійснив дію (адміністратор)
-    target = update.new_chat_member  # Користувач, над яким була виконана дія (забанений/зам'ючений)
+    try:
+        initiator = update.from_user  # Користувач, який здійснив дію (адміністратор)
+        target = update.new_chat_member  # Користувач, над яким була виконана дія (забанений/зам'ючений)
 
-    action = None
-    info = ""
-    chat = await sync_to_async(Chats.objects.get)(chat_id=update.chat.id)  # Отримуємо чат, де відбулась дія
-    # Визначаємо тип дії та збираємо інформацію про неї
-    if target.status == "kicked":
-        action = "ban"
-        info = f"Забанив користувача @{target.user.username} ({target.user.id})"
+        action = None
+        info = ""
+        chat = await sync_to_async(Chats.objects.get)(chat_id=update.chat.id)  # Отримуємо чат, де відбулась дія
 
-        # Додаємо або оновлюємо запис в базі даних для забороненого користувача, використовуючи нову модель User
-        user, _ = await sync_to_async(ChatUser.objects.get_or_create)(user_id=target.user.id)
-        membership, _ = await sync_to_async(ChatMembership.objects.update_or_create)(
-            user=user,
-            chat=chat,
-            defaults={
-                "is_banned": True,
-                "banned_at": now(),
-                "status": "ban"
-            }
-        )
+        # Визначаємо тип дії та збираємо інформацію про неї
+        if target.status == "kicked":
+            action = "ban"
+            info = f"Забанив користувача @{target.user.username} ({target.user.id})"
 
-    elif target.status == "restricted":
-        action = "mute"
-        info = f"Зам'ютив користувача @{target.user.username} ({target.user.id})"
+            # Додаємо або оновлюємо запис в базі даних для забороненого користувача, використовуючи нову модель User
+            user, _ = await sync_to_async(ChatUser.objects.get_or_create)(user_id=target.user.id)
+            membership, _ = await sync_to_async(ChatMembership.objects.update_or_create)(
+                user=user,
+                chat=chat,
+                defaults={
+                    "is_banned": True,
+                    "banned_at": now(),
+                    "status": "ban"
+                }
+            )
 
-        mute_end_time = None  # Тут ви можете додати час завершення, якщо він заданий
-        user = await sync_to_async(ChatUser.objects.get)(user_id=target.user.id)
-        membership, _ = await sync_to_async(ChatMembership.objects.update_or_create)(
-            user=user,
-            chat=chat,
-            defaults={
-                "is_muted": True,
-                "mute_until": mute_end_time,
-                "status": "Замучено"
-            }
-        )
-        # Додаємо або оновлюємо запис в базі даних для зам'юченого користувача
+        elif target.status == "restricted":
+            action = "mute"
+            info = f"Зам'ютив користувача @{target.user.username} ({target.user.id})"
 
-    elif target.status == "member" and update.old_chat_member.status == "kicked":
-        action = "unban"
-        info = f"Розбанив користувача @{target.user.username} ({target.user.id})"
+            mute_end_time = None  # Тут ви можете додати час завершення, якщо він заданий
+            user = await sync_to_async(ChatUser.objects.get)(user_id=target.user.id)
+            membership, _ = await sync_to_async(ChatMembership.objects.update_or_create)(
+                user=user,
+                chat=chat,
+                defaults={
+                    "is_muted": True,
+                    "mute_until": mute_end_time,
+                    "status": "Замучено"
+                }
+            )
 
-        # Оновлюємо статус користувача в базі даних (розбанюємо)
-        user = await sync_to_async(ChatUser.objects.get)(user_id=target.user.id)
-        membership, _ = await sync_to_async(ChatMembership.objects.update_or_create)(
-            user_id=user,
-            chats_names=chat,
-            defaults={
-                "is_banned": False,
-                "banned_at": None,
-                "status": "active"
-            }
-        )
+        elif target.status == "member" and update.old_chat_member.status == "kicked":
+            action = "unban"
+            info = f"Розбанив користувача @{target.user.username} ({target.user.id})"
 
-    elif target.status == "member" and update.old_chat_member.status == "restricted":
-        action = "unmute"
-        info = f"Розмутив користувача @{target.user.username} ({target.user.id})"
+            # Оновлюємо статус користувача в базі даних (розбанюємо)
+            user = await sync_to_async(ChatUser.objects.get)(user_id=target.user.id)
+            membership, _ = await sync_to_async(ChatMembership.objects.update_or_create)(
+                user=user,
+                chat=chat,
+                defaults={
+                    "is_banned": False,
+                    "banned_at": None,
+                    "status": "active"
+                }
+            )
 
-        # Оновлюємо статус користувача в базі даних (розмутуємо)
-        user = await sync_to_async(ChatUser.objects.get)(user_id=target.user.id)
-        membership, _ = await sync_to_async(ChatMembership.objects.update_or_create)(
-            user_id=user,
-            chat=chat,
-            defaults={
-                "is_muted": False,
-                "mute_until": None
-            }
-        )
+        elif target.status == "member" and update.old_chat_member.status == "restricted":
+            action = "unmute"
+            info = f"Розмутив користувача @{target.user.username} ({target.user.id})"
 
-    # Записуємо дію адміністратора в лог
-    if action:
-        await log_action(
-            first_name=initiator.first_name,
-            chat_id=update.chat.id,
-            user_id=initiator.id,  # Ідентифікатор адміністратора
-            username=initiator.username,  # Ім'я користувача адміністратора
-            action_type=action,  # Тип дії (ban, mute, unban, unmute, delete_message)
-            info=info)
+            # Оновлюємо статус користувача в базі даних (розмутуємо)
+            user = await sync_to_async(ChatUser.objects.get)(user_id=target.user.id)
+            membership, _ = await sync_to_async(ChatMembership.objects.update_or_create)(
+                user=user,
+                chat=chat,
+                defaults={
+                    "is_muted": False,
+                    "mute_until": None
+                }
+            )
+
+        # Записуємо дію адміністратора в лог
+        if action:
+            await log_action(
+                first_name=initiator.first_name,
+                chat_id=update.chat.id,
+                user_id=initiator.id,  # Ідентифікатор адміністратора
+                username=initiator.username,  # Ім'я користувача адміністратора
+                action_type=action,  # Тип дії (ban, mute, unban, unmute, delete_message)
+                info=info
+            )
+
+    except Exception as e:
+        logger.error(f"Error occurred: {str(e)}", exc_info=True)
