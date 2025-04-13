@@ -411,9 +411,6 @@ async def filter_spam(message: Message, bot: Bot):
         await bot.delete_message(chat_id, message.message_id)
         await log_action(chat_id, user_id, username,first_name, "spam_deleted", "Deleted forwarded message", text)
         return
-    elif message.from_user.username == "combot":
-        await bot.delete_message(chat_id, message.message_id)
-        return
     await save_message(message.message_id,chat_id, user_id, username, first_name, text)
     await increment_message_count(user_id=user_id, chat_id=chat_id, name=first_name)
 
@@ -432,7 +429,7 @@ async def track_admin_actions(update: ChatMemberUpdated):
         info = f"Забанив користувача @{target.user.username} ({target.user.id})"
 
         # Додаємо або оновлюємо запис в базі даних для забороненого користувача, використовуючи нову модель User
-        user = await sync_to_async(ChatUser.objects.get)(user_id=target.user.id)
+        user, _ = await sync_to_async(ChatUser.objects.get_or_create)(user_id=target.user.id)
         membership, _ = await sync_to_async(ChatMembership.objects.update_or_create)(
             user=user,
             chat=chat,
