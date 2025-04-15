@@ -6,7 +6,7 @@ from aiogram import types
 from aiogram.filters import Filter
 from aiogram.types import ChatPermissions, ChatMemberUpdated
 from django.utils.timezone import now
-
+from morphology import *
 from const import *
 
 router = Router()
@@ -192,7 +192,6 @@ async def filter_spam(message: Message, bot: Bot):
     text = message.text if message.text else ""
 
     logger.info(f"Received message from user {user_id} ({first_name}, @{username}) in chat {chat_id}.")
-
     try:
         existing_message = await get_existing_message(message.message_id)
         if existing_message:
@@ -236,15 +235,25 @@ async def filter_spam(message: Message, bot: Bot):
             DELETE_RTL = settings.get("DELETE_RTL", [False])[0]
             DELETE_EMAILS = settings.get("DELETE_EMAILS", [False])[0]
             DELETE_REFERRAL_LINKS = settings.get("DELETE_REFERRAL_LINKS", [False])[0]
-
+            MORPHOLOGY_UK = settings.get("MORPHOLOGY_UK", [])
+            MORPHOLOGY_UK = flatten_and_join(MORPHOLOGY_UK)
+            MORPHOLOGY_RU = settings.get("MORPHOLOGY_RU", [])
+            MORPHOLOGY_RU = flatten_and_join(MORPHOLOGY_RU)
             EMOJI_LIST = settings.get("EMOJI_LIST", [])
             EMOJI_LIST = flatten_and_join(EMOJI_LIST)
+
             flattened_emoji_list = [emoji for emojis in EMOJI_LIST for emoji in emojis]
 
-        text = re.sub(r"[^\w\s]", "", (message.text or message.caption or "").lower())
+        raw_text = message.text or message.caption or ""
+        raw_text = " ".join(map(str, raw_text)) if isinstance(raw_text, list) else raw_text
+        text = re.sub(r"[^\w\s]", "", raw_text.lower())
         chat = await sync_to_async(Chats.objects.get)(chat_id=chat_id)
+        clean_text = re.sub(r"[^\w\s]", "", text.lower())
+        normalized_set = set(normalize_text(text))
+        bad_words_set = {re.sub(r"[^\w\s]", "", word).lower() for word in BAD_WORDS_MUTE}
+        morph_set = {w.lower() for w in MORPHOLOGY_UK + MORPHOLOGY_RU if isinstance(w, str)}
 
-        if any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_MUTE):
+        if bad_words_set & set(clean_text.split()) or morph_set & normalized_set:
             await bot.delete_message(chat_id, message.message_id)
             mute_end_time = datetime.now() + timedelta(minutes=MUTE_TIME)
             time_diff = mute_end_time - datetime.now()
@@ -270,7 +279,11 @@ async def filter_spam(message: Message, bot: Bot):
                 except Exception as e:
                     logger.error(f"Failed to mute user {user_id} in chat {membership.chat.chat_id}: {e}")
 
-            matched_word = next((word for word in BAD_WORDS_MUTE if word.lower() in text), None)
+            matched_word = next(
+                (word for word in BAD_WORDS_MUTE if re.sub(r"[^\w\s]", "", word).lower() in clean_text.split()), None)
+            matched_morph_word = next((w for w in morph_set if w in normalized_set), None)
+
+            reason = f"User muted in all chats for word '{matched_word or matched_morph_word}' until {mute_end_time.strftime('%Y-%m-%d %H:%M:%S')}."
 
             await log_action(
                 chat_id,
@@ -278,10 +291,9 @@ async def filter_spam(message: Message, bot: Bot):
                 username,
                 first_name,
                 "spam_deleted",
-                f"User muted in all chats for word '{matched_word}' until {mute_end_time.strftime('%Y-%m-%d %H:%M:%S')}.",
+                reason,
                 text,
             )
-            return
 
         elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_KICK):
             await bot.delete_message(chat_id, message.message_id)
@@ -335,8 +347,6 @@ async def filter_spam(message: Message, bot: Bot):
                 text
             )
             return
-
-        # Additional checks for other conditions (mentions, emojis, etc.) can follow similarly
 
         if message.reply_markup:
             await bot.delete_message(chat_id, message.message_id)
@@ -420,9 +430,9 @@ async def filter_spam(message: Message, bot: Bot):
         await save_message(message.message_id, chat_id, user_id, username, first_name, text)
         await increment_message_count(user_id=user_id, chat_id=chat_id, name=first_name)
         logger.info(f"Message {message.message_id} saved.")
-
     except Exception as e:
         logger.error(f"Error processing message {message.message_id}: {e}")
+
 
 
 @router.chat_member()
@@ -457,7 +467,7 @@ async def track_admin_actions(update: ChatMemberUpdated):
             info = f"Зам'ютив користувача @{target.user.username} ({target.user.id})"
 
             mute_end_time = None  # Тут ви можете додати час завершення, якщо він заданий
-            user = await sync_to_async(ChatUser.objects.get)(user_id=target.user.id)
+            user, _ = await sync_to_async(ChatUser.objects.get_or_create)(user_id=target.user.id)
             membership, _ = await sync_to_async(ChatMembership.objects.update_or_create)(
                 user=user,
                 chat=chat,
@@ -473,7 +483,7 @@ async def track_admin_actions(update: ChatMemberUpdated):
             info = f"Розбанив користувача @{target.user.username} ({target.user.id})"
 
             # Оновлюємо статус користувача в базі даних (розбанюємо)
-            user = await sync_to_async(ChatUser.objects.get)(user_id=target.user.id)
+            user, _ = await sync_to_async(ChatUser.objects.get_or_create)(user_id=target.user.id)
             membership, _ = await sync_to_async(ChatMembership.objects.update_or_create)(
                 user=user,
                 chat=chat,
@@ -489,7 +499,7 @@ async def track_admin_actions(update: ChatMemberUpdated):
             info = f"Розмутив користувача @{target.user.username} ({target.user.id})"
 
             # Оновлюємо статус користувача в базі даних (розмутуємо)
-            user = await sync_to_async(ChatUser.objects.get)(user_id=target.user.id)
+            user, _ = await sync_to_async(ChatUser.objects.get_or_create)(user_id=target.user.id)
             membership, _ = await sync_to_async(ChatMembership.objects.update_or_create)(
                 user=user,
                 chat=chat,

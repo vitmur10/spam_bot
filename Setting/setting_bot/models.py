@@ -24,6 +24,10 @@ class ModerationSettings(models.Model):
                                   default="тролінг, деструктив, образа")
     ban_words = models.TextField("Слова для бану", help_text="Перераховуйте через кому",
                                  default="нацизм, расизм, тероризм, дитяче порно")
+    morphology_worlds_lang_uk = models.TextField("Слова для морфології_УК", help_text="Перераховуйте через кому",
+                                 default="порно")
+    morphology_worlds_lang_ru = models.TextField("Слова для морфології_ru", help_text="Перераховуйте через кому",
+                                 default="порно")
 
     max_mentions = models.IntegerField("Макс. теги", default=5)
     max_emojis = models.IntegerField("Макс. емодзі", default=10)

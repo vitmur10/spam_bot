@@ -70,6 +70,7 @@ def get_moderation_settings():
             "BAD_WORDS_MUTE": [],
             "BAD_WORDS_KICK": [],
             "BAD_WORDS_BAN": [],
+
             "MAX_MENTIONS": [],
             "MAX_EMOJIS": [],
             "MIN_CAPS_LENGTH": [],
@@ -84,7 +85,9 @@ def get_moderation_settings():
             "DELETE_RTL": [],
             "DELETE_EMAILS": [],
             "DELETE_REFERRAL_LINKS": [],
-            "EMOJI_LIST": []
+            "EMOJI_LIST": [],
+            "MORPHOLOGY_UK": [],
+            "MORPHOLOGY_RU": [],
         }
 
         # Перебираємо всі налаштування і додаємо їх до відповідних списків
@@ -107,8 +110,10 @@ def get_moderation_settings():
             combined_settings["DELETE_EMAILS"].append(setting.delete_emails)
             combined_settings["DELETE_REFERRAL_LINKS"].append(setting.delete_referral_links)
             combined_settings["EMOJI_LIST"].append(setting.emoji_list.split(", "))
+            combined_settings["MORPHOLOGY_UK"].append(setting.morphology_worlds_lang_uk.split(","))
+            combined_settings["MORPHOLOGY_RU"].append(setting.morphology_worlds_lang_ru.split(","))
 
-        return combined_settings  # Повертаємо один великий словник з усіма налаштуваннями
+        return combined_settings
 
     return {}
 
