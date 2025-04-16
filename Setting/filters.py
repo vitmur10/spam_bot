@@ -253,7 +253,7 @@ async def filter_spam(message: Message, bot: Bot):
         bad_words_set = {re.sub(r"[^\w\s]", "", word).lower() for word in BAD_WORDS_MUTE}
         morph_set = {w.lower() for w in MORPHOLOGY_UK + MORPHOLOGY_RU if isinstance(w, str)}
 
-        if bad_words_set & set(clean_text.split()) or morph_set & normalized_set:
+        if any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_MUTE):
             await bot.delete_message(chat_id, message.message_id)
             mute_end_time = datetime.now() + timedelta(minutes=MUTE_TIME)
             time_diff = mute_end_time - datetime.now()
@@ -281,9 +281,9 @@ async def filter_spam(message: Message, bot: Bot):
 
             matched_word = next(
                 (word for word in BAD_WORDS_MUTE if re.sub(r"[^\w\s]", "", word).lower() in clean_text.split()), None)
-            matched_morph_word = next((w for w in morph_set if w in normalized_set), None)
 
-            reason = f"User muted in all chats for word '{matched_word or matched_morph_word}' until {mute_end_time.strftime('%Y-%m-%d %H:%M:%S')}."
+
+            reason = f"User muted in all chats for word '{matched_word}' until {mute_end_time.strftime('%Y-%m-%d %H:%M:%S')}."
 
             await log_action(
                 chat_id,
@@ -294,7 +294,44 @@ async def filter_spam(message: Message, bot: Bot):
                 reason,
                 text,
             )
+        elif any(word in normalize_text(text) for word in [w.lower() for w in MORPHOLOGY_UK + MORPHOLOGY_RU if isinstance(w, str)]):
+            matched_morph_word = next((w for w in morph_set if w in normalized_set), None)
+            await bot.delete_message(chat_id, message.message_id)
+            mute_end_time = datetime.now() + timedelta(minutes=MUTE_TIME)
+            time_diff = mute_end_time - datetime.now()
 
+            user, created = await sync_to_async(ChatUser.objects.get_or_create)(user_id=user_id, defaults={
+                "username": username,
+                "first_name": first_name,
+            })
+
+            memberships = await sync_to_async(list)(
+                ChatMembership.objects.select_related("chat").filter(user=user)
+            )
+
+            for membership in memberships:
+                await membership.mute(mute_duration=time_diff)
+                try:
+                    await bot.restrict_chat_member(
+                        membership.chat.chat_id,
+                        user_id,
+                        permissions=ChatPermissions(can_send_messages=False),
+                        until_date=mute_end_time,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to mute user {user_id} in chat {membership.chat.chat_id}: {e}")
+
+            reason = f"User muted in all chats for word '{matched_morph_word}' until {mute_end_time.strftime('%Y-%m-%d %H:%M:%S')}."
+
+            await log_action(
+                chat_id,
+                user_id,
+                username,
+                first_name,
+                "spam_deleted",
+                reason,
+                text,
+            )
         elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_KICK):
             await bot.delete_message(chat_id, message.message_id)
             await bot.ban_chat_member(chat_id, user_id)
