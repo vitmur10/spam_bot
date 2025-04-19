@@ -97,52 +97,71 @@ def get_chat_by_name(name):
     return Chats.objects.get(name=name)
 
 
-async def auto_unban_unmute(bot: Bot):
-    while True:
-        # Отримуємо користувачів, яких потрібно розбанити або розмутити
-        muted_users = await get_muted_users()  # Наприклад, User.objects.filter(is_muted=True)
+async def auto_moderation_loop(bot):
+    auto_ban_interval = 3600  # 1 година
+    last_auto_ban = datetime.now(timezone.utc)
 
+    while True:
+        # 🔓 UNMUTE/UNBAN
+        muted_users = await get_muted_users()
         for membership in muted_users:
-            # Перевіряємо, чи користувач мутований і чи настав час для розмутування
-            if membership.is_muted and membership .mute_until <= datetime.now(timezone.utc):
-                chats_names = await get_chats_names(membership )  # Отримуємо чат користувача
-                chat = await get_chat_by_name(chats_names.name)  # Отримуємо сам чат
-                username = membership.user.username
-                first_name = membership.user.first_name
-                user_id = membership.user.user_id
-                # Логуємо дію в ActionLog
-                await sync_to_async(ActionLog.objects.create)(  # Створюємо запис у базі
+            if membership.is_muted and membership.mute_until <= datetime.now(timezone.utc):
+                chats_names = await get_chats_names(membership)
+                chat = await get_chat_by_name(chats_names.name)
+                user = membership.user
+
+                await sync_to_async(ActionLog.objects.create)(
                     chat=chats_names,
-                    user_id=user_id,
-                    username=username,
-                    first_name=first_name,
+                    user_id=user.user_id,
+                    username=user.username,
+                    first_name=user.first_name,
                     action_type='unmute_unban',
-                    info=f"User {user_id} was unmuted and unbanned.",
+                    info=f"User {user.user_id} was unmuted and unbanned.",
                     created_at=datetime.now()
                 )
 
-                # Оновлюємо статус користувача на "unmuted"
-                await membership.unmute()  # Викликаємо метод для зняття мутації
+                await membership.unmute()
 
-                # Оновлення статусу користувача в чаті (розмутування, розбанення)
-                # Важливо використовувати методи ботів для обмежень, якщо потрібно
-                print(chat.chat_id)
-                chat_member = await bot.get_chat_member(chat.chat_id, user_id)
-                print(chat_member.status)
+                chat_member = await bot.get_chat_member(chat.chat_id, user.user_id)
                 if chat_member.status != "creator":
                     await bot.restrict_chat_member(
                         chat_id=chat.chat_id,
-                        user_id=user_id,
+                        user_id=user.user_id,
                         permissions=types.ChatPermissions(
                             can_send_messages=True,
                             can_send_media_messages=True,
                             can_send_other_messages=True,
-                            can_add_web_page_previews=True
+                            can_add_web_page_previews=True,
                         ),
                     )
 
-        # Чекаємо 60 секунд перед наступною перевіркою
+        # ⛔ AUTO-BAN
+        now_utc = datetime.now(timezone.utc)
+        if (now_utc - last_auto_ban).total_seconds() >= auto_ban_interval:
+            await auto_ban_users()
+            last_auto_ban = now_utc
+
         await asyncio.sleep(60)
+
+
+async def auto_ban_users():
+    for user in await sync_to_async(list)(ChatUser.objects.all()):
+        memberships = await sync_to_async(list)(ChatMembership.objects.filter(user=user))
+        mute_count = sum(m.mute_count for m in memberships)
+        message_count = sum(m.message_count for m in memberships)
+
+        if mute_count > 15 and message_count < 15:
+            for m in memberships:
+                if not m.is_banned:
+                    await m.ban()
+                    await sync_to_async(ActionLog.objects.create)(
+                        chat=m.chat,
+                        user_id=user.user_id,
+                        action_type="user_banned",
+                        info=f"[AUTO] Блокування за {mute_count} мутів та {message_count} повідомлень",
+                        created_at=datetime.now()
+                    )
+                    ban_user_telegram(m.chat.chat_id, user.user_id)
 
 
 @router.message(
@@ -294,6 +313,7 @@ async def filter_spam(message: Message, bot: Bot):
                 reason,
                 text,
             )
+            return
         elif any(word in normalize_text(text) for word in [w.lower() for w in MORPHOLOGY_UK + MORPHOLOGY_RU if isinstance(w, str)]):
             matched_morph_word = next((w for w in morph_set if w in normalized_set), None)
             await bot.delete_message(chat_id, message.message_id)
@@ -332,6 +352,7 @@ async def filter_spam(message: Message, bot: Bot):
                 reason,
                 text,
             )
+            return
         elif any(re.sub(r"[^\w\s]", "", word).lower() in text for word in BAD_WORDS_KICK):
             await bot.delete_message(chat_id, message.message_id)
             await bot.ban_chat_member(chat_id, user_id)

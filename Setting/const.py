@@ -23,7 +23,7 @@ dp = Dispatcher(storage=MemoryStorage())
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "Setting.settings")
 application = get_wsgi_application()
 from setting_bot.models import ModerationSettings,Chats, ChatUser, Message, ActionLog, ChatMembership
-
+from setting_bot.views import ban_user_telegram
 WHITE_LIST_THRESHOLD = 15  # Мінімальна кількість повідомлень
 
 # Налаштування логера

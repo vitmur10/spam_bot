@@ -350,10 +350,20 @@ class ChatUserAdmin(admin.ModelAdmin):
 
 @admin.register(ChatMembership)
 class ChatMembershipAdmin(admin.ModelAdmin):
-    list_display = ('user', 'chat', 'status', 'is_banned', 'is_muted', 'mute_count', 'mute_until', 'message_count', 'last_message_date')
+    list_display = (
+        'user', 'short_chat_name', 'status', 'is_banned', 'is_muted',
+        'mute_count', 'mute_until', 'message_count', 'last_message_date'
+    )
     search_fields = ('user__username', 'chat__name')
     list_filter = ('is_banned', 'is_muted', 'chat__name')
     ordering = ['-last_message_date']
+
+    def short_chat_name(self, obj):
+        name = obj.chat.name
+        return name[:35] + '…' if len(name) > 35 else name
+
+    short_chat_name.short_description = "Chat"
+    short_chat_name.admin_order_field = 'chat__name'
 
 
 @admin.register(Chats)
