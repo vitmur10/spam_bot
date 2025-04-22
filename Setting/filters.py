@@ -210,7 +210,6 @@ async def filter_spam(message: Message, bot: Bot):
     chat_id = message.chat.id
     text = message.text if message.text else ""
 
-    logger.info(f"Received message from user {user_id} ({first_name}, @{username}) in chat {chat_id}.")
     try:
         existing_message = await get_existing_message(message.message_id)
         if existing_message:
@@ -218,7 +217,6 @@ async def filter_spam(message: Message, bot: Bot):
             new_text = message.text
             if old_text != new_text:
                 await update_message(existing_message, new_text)
-                logger.info(f"Message {message.message_id} updated with new text.")
                 return
 
         await add_user(chat_id, user_id, first_name, username)
@@ -226,7 +224,6 @@ async def filter_spam(message: Message, bot: Bot):
 
         if user_id in whitelisted_users:
             await save_message(message.message_id, chat_id, user_id, username, first_name, text)
-            logger.info(f"User {user_id} is whitelisted. Message saved.")
             return
 
         settings = await get_moderation_settings()
@@ -487,7 +484,6 @@ async def filter_spam(message: Message, bot: Bot):
         # Final message saving
         await save_message(message.message_id, chat_id, user_id, username, first_name, text)
         await increment_message_count(user_id=user_id, chat_id=chat_id, name=first_name)
-        logger.info(f"Message {message.message_id} saved.")
     except Exception as e:
         logger.error(f"Error processing message {message.message_id}: {e}")
 
