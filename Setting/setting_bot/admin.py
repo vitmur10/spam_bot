@@ -352,19 +352,35 @@ class ChatUserAdmin(admin.ModelAdmin):
 class ChatMembershipAdmin(admin.ModelAdmin):
     list_display = (
         'user', 'short_chat_name', 'status', 'is_banned', 'is_muted',
-        'mute_count', 'mute_until', 'message_count', 'last_message_date'
+        'mute_count', 'mute_until', 'last_message_date',
+        'message_link', 'action_log_link'
     )
-    search_fields = ('user__username', 'chat__name')
+    search_fields = ('user__username', 'user__user_id', 'chat__name')
     list_filter = ('is_banned', 'is_muted', 'chat__name')
     ordering = ['-last_message_date']
 
     def short_chat_name(self, obj):
         name = obj.chat.name
         return name[:35] + '…' if len(name) > 35 else name
-
     short_chat_name.short_description = "Chat"
     short_chat_name.admin_order_field = 'chat__name'
 
+    def total_message_count(self, obj):
+        return sum(m.message_count for m in ChatMembership.objects.filter(user=obj.user))
+
+    total_message_count.short_description = "Повідомлень загалом"
+
+    def message_link(self, obj):
+        url = reverse('admin:setting_bot_message_changelist') + f'?user_id={obj.user.user_id}'
+        total = self.total_message_count(obj)
+        return format_html('<a href="{}">{}</a>', url, total)
+
+    message_link.short_description = 'Повідомлення'
+
+    def action_log_link(self, obj):
+        url = reverse('admin:setting_bot_actionlog_changelist') + f'?user_id={obj.user.user_id}'
+        return format_html('<a href="{}">Дії</a>', url)
+    action_log_link.short_description = 'Дії'
 
 @admin.register(Chats)
 class ChatsAdmin(admin.ModelAdmin):
