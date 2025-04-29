@@ -99,13 +99,13 @@ def get_chat_by_name(name):
 
 async def auto_moderation_loop(bot):
     auto_ban_interval = 3600  # 1 година
-    last_auto_ban = datetime.now(timezone.utc)
+    last_auto_ban = datetime.now()
 
     while True:
         # 🔓 UNMUTE/UNBAN
         muted_users = await get_muted_users()
         for membership in muted_users:
-            if membership.is_muted and membership.mute_until <= datetime.now(timezone.utc):
+            if membership.is_muted and membership.mute_until <= timezone.now():
                 chats_names = await get_chats_names(membership)
                 chat = await get_chat_by_name(chats_names.name)
                 user = membership.user
@@ -117,7 +117,7 @@ async def auto_moderation_loop(bot):
                     first_name=user.first_name,
                     action_type='unmute_unban',
                     info=f"User {user.user_id} was unmuted and unbanned.",
-                    created_at=datetime.now()
+                    created_at=timezone.now()
                 )
 
                 await membership.unmute()
@@ -136,7 +136,7 @@ async def auto_moderation_loop(bot):
                     )
 
         # ⛔ AUTO-BAN
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now()
         if (now_utc - last_auto_ban).total_seconds() >= auto_ban_interval:
             await auto_ban_users()
             last_auto_ban = now_utc
@@ -145,8 +145,14 @@ async def auto_moderation_loop(bot):
 
 
 async def auto_ban_users():
-    for user in await sync_to_async(list)(ChatUser.objects.all()):
-        memberships = await sync_to_async(list)(ChatMembership.objects.filter(user=user))
+    users = await sync_to_async(list)(ChatUser.objects.all())
+
+    for user in users:
+        # Використовуємо select_related щоб уникнути KeyError на m.chat
+        memberships = await sync_to_async(list)(
+            ChatMembership.objects.select_related('chat').filter(user=user)
+        )
+
         mute_count = sum(m.mute_count for m in memberships)
         message_count = sum(m.message_count for m in memberships)
 
@@ -154,14 +160,18 @@ async def auto_ban_users():
             for m in memberships:
                 if not m.is_banned:
                     await m.ban()
+
                     await sync_to_async(ActionLog.objects.create)(
                         chat=m.chat,
                         user_id=user.user_id,
+                        username=user.username,
+                        first_name=user.first_name,
                         action_type="user_banned",
                         info=f"[AUTO] Блокування за {mute_count} мутів та {message_count} повідомлень",
                         created_at=datetime.now()
                     )
-                    ban_user_telegram(m.chat.chat_id, user.user_id)
+
+                    await sync_to_async(ban_user_telegram)(m.chat.chat_id, user.user_id)
 
 
 @router.message(
