@@ -1,6 +1,6 @@
 import asyncio
 from datetime import timedelta
-
+from django.utils import timezone
 from aiogram import Router, F
 from aiogram import types
 from aiogram.filters import Filter
@@ -105,7 +105,7 @@ async def auto_moderation_loop(bot):
         # 🔓 UNMUTE/UNBAN
         muted_users = await get_muted_users()
         for membership in muted_users:
-            if membership.is_muted and membership.mute_until <= timezone.now():
+            if membership.is_muted and membership.mute_until <= now():
                 chats_names = await get_chats_names(membership)
                 chat = await get_chat_by_name(chats_names.name)
                 user = membership.user
@@ -117,7 +117,7 @@ async def auto_moderation_loop(bot):
                     first_name=user.first_name,
                     action_type='unmute_unban',
                     info=f"User {user.user_id} was unmuted and unbanned.",
-                    created_at=timezone.now()
+                    created_at=now()
                 )
 
                 await membership.unmute()

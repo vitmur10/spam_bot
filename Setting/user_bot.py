@@ -10,9 +10,15 @@ chat_ids = list(Chats.objects.values_list('chat_id', flat=True))  # прикла
 # ----- Реєструємо один обробник для всіх чатів -----
 @client.on(events.NewMessage(chats=chat_ids))
 async def delete_bot_message(event):
-    sender = await event.get_sender()  # отримуємо повний об'єкт
-    if sender.bot:
+    sender = await event.get_sender()
+    
+    # якщо sender існує і це бот
+    if sender and getattr(sender, "bot", False):
         await event.delete()
+    else:
+        # якщо sender=None, можна просто ігнорувати
+        pass
+
 
 client.start()
 client.run_until_disconnected()
