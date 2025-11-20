@@ -1,0 +1,114 @@
+[
+{
+  "model": "setting_bot.chats",
+  "pk": 2,
+  "fields": {
+    "chat_id": -1001728485723,
+    "name": "ReLocate DV 🇺🇸 участники лотереи грин кард США DV-2024"
+  }
+},
+{
+  "model": "setting_bot.chats",
+  "pk": 3,
+  "fields": {
+    "chat_id": -1001697227525,
+    "name": "ReLocate DV - 2025 🇺🇦🇺🇸 переможці лотереї Green Card"
+  }
+},
+{
+  "model": "setting_bot.chats",
+  "pk": 4,
+  "fields": {
+    "chat_id": -1001528200522,
+    "name": "ReLocate DV 🇺🇦🇺🇸 переможці лотереї Green Card"
+  }
+},
+{
+  "model": "setting_bot.chats",
+  "pk": 5,
+  "fields": {
+    "chat_id": -1001192329335,
+    "name": "ReLocate DV 🇺🇸 участники и победители лотереи Green Card США"
+  }
+},
+{
+  "model": "setting_bot.chats",
+  "pk": 6,
+  "fields": {
+    "chat_id": -1001761089680,
+    "name": "USA DV 🇺🇸 победители лотереи Green Card США"
+  }
+},
+{
+  "model": "setting_bot.chats",
+  "pk": 7,
+  "fields": {
+    "chat_id": -1002136829153,
+    "name": "ReLocate 🇺🇸 re-parole (репароль в США)"
+  }
+},
+{
+  "model": "setting_bot.chats",
+  "pk": 8,
+  "fields": {
+    "chat_id": -1001887378083,
+    "name": "ReLocate 🇺🇸 Воссоединение семьи в США | Родственники"
+  }
+},
+{
+  "model": "setting_bot.chats",
+  "pk": 9,
+  "fields": {
+    "chat_id": -1001892204854,
+    "name": "ReLocate 🇨🇦 🎓 Cтудвизы и образование в Канаде"
+  }
+},
+{
+  "model": "setting_bot.chats",
+  "pk": 10,
+  "fields": {
+    "chat_id": -1001615527028,
+    "name": "ReLocate 🇺🇸 иммиграция через брак в США"
+  }
+},
+{
+  "model": "setting_bot.chats",
+  "pk": 11,
+  "fields": {
+    "chat_id": -1001755492813,
+    "name": "ReLocate 🇺🇸 Студвизы и образование в США"
+  }
+},
+{
+  "model": "setting_bot.chats",
+  "pk": 12,
+  "fields": {
+    "chat_id": -1001783881922,
+    "name": "ReLocate 🇺🇦UA 🇨🇦CA & CUAET"
+  }
+},
+{
+  "model": "setting_bot.chats",
+  "pk": 13,
+  "fields": {
+    "chat_id": -1001805927920,
+    "name": "ReLocate 🇨🇦 Иммиграция и брак в Канаде, воссоединение семьи"
+  }
+},
+{
+  "model": "setting_bot.chats",
+  "pk": 14,
+  "fields": {
+    "chat_id": -1001566351473,
+    "name": "Дальнобойщик"
+  }
+},
+{
+  "model": "setting_bot.chats",
+  "pk": 15,
+  "fields": {
+    "chat_id": -1002258721673,
+    "name": "tesova"
+  }
+}
+]
