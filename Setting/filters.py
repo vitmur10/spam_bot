@@ -8,10 +8,13 @@ from aiogram.types import ChatPermissions, ChatMemberUpdated
 from django.utils.timezone import now
 from morphology import *
 from const import *
-
+from aiogram.exceptions import TelegramBadRequest
+import logging
 router = Router()
 ChatPermissions(can_send_messages=False)
 
+
+logger = logging.getLogger(__name__)
 banned_users = []
 muted_users = []
 
@@ -108,6 +111,12 @@ async def auto_moderation_loop(bot):
             if membership.is_muted and membership.mute_until <= now():
                 chats_names = await get_chats_names(membership)
                 chat = await get_chat_by_name(chats_names.name)
+
+                # якщо раптом чат не знайшли в БД
+                if chat is None or not chat.chat_id:
+                    logger.warning(f"No chat found for name={chats_names.name}")
+                    continue
+
                 user = membership.user
 
                 await sync_to_async(ActionLog.objects.create)(
@@ -122,7 +131,21 @@ async def auto_moderation_loop(bot):
 
                 await membership.unmute()
 
-                chat_member = await bot.get_chat_member(chat.chat_id, user.user_id)
+                try:
+                    chat_member = await bot.get_chat_member(chat.chat_id, user.user_id)
+                except TelegramBadRequest as e:
+                    logger.warning(
+                        f"BadRequest for chat_id={chat.chat_id}, user_id={user.user_id}: {e}"
+                    )
+                    # саме наш кейс
+                    if "chat not found" in str(e).lower():
+                        logger.warning(f"Dead chat detected: {chat.chat_id}")
+                        # тут можна помітити чат як неактивний в БД
+                        # chat.is_active = False
+                        # await sync_to_async(chat.save)()
+                    # у будь-якому разі просто пропускаємо цього юзера/чат
+                    continue
+
                 if chat_member.status != "creator":
                     await bot.restrict_chat_member(
                         chat_id=chat.chat_id,
