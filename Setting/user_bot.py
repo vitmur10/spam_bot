@@ -1,7 +1,7 @@
 from telethon import TelegramClient, events
 from const import api_id, api_hash, Chats, NAME_SESSION
 
-client = TelegramClient(NAME_SESSION, api_id, api_hash)
+client = TelegramClient("userbot_session", api_id, api_hash)
 
 chat_ids = list(Chats.objects.values_list('chat_id', flat=True))
 
