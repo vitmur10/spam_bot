@@ -9,6 +9,7 @@ load_dotenv()
 API_TOKEN = os.getenv('TOKEN_BOT')
 bot = Bot(token=API_TOKEN)  # Використовуємо default для налаштувань
 
+
 # Create your views here.
 def mute_user_telegram(chat_id, user_id, mute_end_time):
     # Перевести timedelta в datetime
@@ -47,8 +48,6 @@ def ban_user_telegram(chat_id, user_id):
     response = requests.post(url, data=data)
 
 
-
-
 def unban_user_telegram(chat_id, user_id):
     url = f"https://api.telegram.org/bot{API_TOKEN}/unbanChatMember"
 
@@ -60,9 +59,6 @@ def unban_user_telegram(chat_id, user_id):
 
     # Відправка запиту до Telegram API
     response = requests.post(url, data=data)
-
-
-
 
 
 def unmute_user_telegram(chat_id, user_id):
@@ -82,4 +78,3 @@ def unmute_user_telegram(chat_id, user_id):
 
     # Відправка запиту до Telegram API
     response = requests.post(url, json=data)
-

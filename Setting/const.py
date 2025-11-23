@@ -14,6 +14,7 @@ load_dotenv()
 API_TOKEN = os.getenv('TOKEN_BOT')
 api_id = os.getenv('API_ID')
 api_hash = os.getenv('API_HASH')
+NAME_SESSION = os.getenv('NAME_SESSION')
 # Створюємо екземпляр DefaultBotProperties з parse_mode
 default_properties = DefaultBotProperties(parse_mode="HTML")
 
