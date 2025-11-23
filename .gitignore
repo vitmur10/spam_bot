@@ -8,3 +8,4 @@ venv/
 .idea/misc.xml
 Setting/setting_bot/__pycache__/views.cpython-311.pyc
 Setting/Setting/__pycache__/settings.cpython-311.pyc
+Setting/db.sqlite3
